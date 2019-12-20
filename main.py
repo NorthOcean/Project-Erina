@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
-@LastEditors: ConghaoWong
-@LastEditTime: 2019-12-20 10:25:19
+@LastEditors  : ConghaoWong
+@LastEditTime : 2019-12-20 15:04:55
 @Description: file content
 '''
 import argparse
@@ -16,6 +16,7 @@ from matplotlib.axes._axes import _log as matplotlib_axes_logger
 
 from PrepareTrainData import Prepare_Train_Data
 from models import *
+from helpmethods import dir_check
 
 matplotlib_axes_logger.setLevel('ERROR')        # 画图警告
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"       # kNN问题
@@ -51,15 +52,15 @@ def get_parser():
 
     # save args
     parser.add_argument('--draw_results', type=bool, default=True)
-    parser.add_argument('--save_base_dir', type=str, default=os.path.join('./', TIME))
-    parser.add_argument('--log_dir', type=str, default=os.path.join('./', TIME))
+    parser.add_argument('--save_base_dir', type=str, default='./logs')
+    parser.add_argument('--log_dir', type=str, default='DO_NOT_CHANGE')
     parser.add_argument('--save_per_step', type=bool, default=True)
 
     # Linear args
     parser.add_argument('--diff_weights', type=float, default=0.95)
 
     # LSTM args
-    parser.add_argument('--model', type=str, default='LSTM-base')
+    parser.add_argument('--model', type=str, default='FullAttention_LSTM')
     parser.add_argument('--k', type=int, default=15)
     parser.add_argument('--save_k_results', type=bool, default=False)
 
@@ -80,14 +81,14 @@ def gpu_config(args):
 
 def main():
     args = get_parser().parse_args()
-    args.model_name += args.model + str(args.test_set)
-    args.log_dir = args.save_base_dir + args.model_name
+    log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
+    args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
     gpu_config(args)
 
     if args.model == 'LSTM-ED':
         model = LSTM_ED
-    elif args.model == 'LSTM-base':
-        model = LSTM_base
+    elif args.model == 'FullAttention_LSTM':
+        model = FullAttention_LSTM
     elif args.model == 'LSTM-Social':
         model = LSTM_Social
     elif args.model == 'Linear':

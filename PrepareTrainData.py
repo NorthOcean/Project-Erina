@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-20 10:25:28
+@LastEditTime : 2019-12-20 15:06:55
 @Description: file content
 '''
 import numpy as np
@@ -31,7 +31,7 @@ class Prepare_Train_Data():
         self.log_dir = dir_check(args.log_dir)
         self.save_file_name = args.model_name + '_{}.npy'
         self.save_path = os.path.join(self.log_dir, self.save_file_name)
-        self.dataset_save_path = dir_check(os.path.join(dir_check('./dataset_npz/'), '{}/'.format(args.model_name[-1])))
+        self.dataset_save_path = dir_check(os.path.join(dir_check('./dataset_npz/'), '{}/'.format(args.test_set)))
         self.dataset_save_format = os.path.join(self.dataset_save_path, 'data.npz')
 
         if os.path.exists(self.dataset_save_format):
@@ -108,9 +108,11 @@ class Prepare_Train_Data():
         video_matrix = self.args.god_position * np.ones([frame_number, person_number, 2])
         for person in person_data:
             person_index = np.where(person_list == person)[0][0]
-            for frame in person_data[person]:
-                frame_index = np.where(frame_list == str(frame[0]))[0][0]
-                video_matrix[frame_index, person_index, :] = frame[1:]
+
+            frame_list_current = (person_data[person]).T[0].astype(np.str)
+            frame_index_current = np.reshape(np.stack([np.where(frame_current == frame_list_current) for frame_current in frame_list_current]), [-1])
+            traj_current = person_data[person][:, 1:]
+            video_matrix[frame_index_current, person_index, :] = traj_current
 
         person_enter_frame = np.where(np.not_equal(video_matrix[:, :, 0], self.args.god_position), 1.0, 0.0).T
         person_enter_frame_smooth = np.ones_like(person_enter_frame)

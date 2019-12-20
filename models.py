@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
-@LastEditors: ConghaoWong
-@LastEditTime: 2019-12-20 10:25:24
+@LastEditors  : ConghaoWong
+@LastEditTime : 2019-12-20 13:20:57
 @Description: file content
 '''
 import os
@@ -223,7 +223,10 @@ class __Base_Model():
             print('Saving done.\t\t')
 
 
-class LSTM_base(__Base_Model):
+class FullAttention_LSTM(__Base_Model):
+    """
+    LSTM based model with full attention layer.
+    """
     def __init__(self, agents, args):
         super().__init__(agents, args)
 
