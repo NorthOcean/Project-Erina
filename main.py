@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 11:10:09
+@LastEditTime : 2019-12-25 19:14:39
 @Description: file content
 '''
 import argparse
@@ -13,7 +13,6 @@ import time
 import tensorflow as tf
 
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
-
 from PrepareTrainData import Prepare_Train_Data
 from models import *
 from helpmethods import dir_check
