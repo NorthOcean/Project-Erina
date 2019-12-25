@@ -1,6 +1,6 @@
 data
 dataset_npz
 logs
-.vscode
+.vscode/*
 
 __pycache__
