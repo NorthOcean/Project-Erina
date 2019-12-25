@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-20 13:20:57
+@LastEditTime : 2019-12-25 11:09:17
 @Description: file content
 '''
 import os
@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from helpmethods import(
     list2array,
     dir_check,
+    draw_test_results,
 )
 
 class __Base_Model():
@@ -111,7 +112,10 @@ class __Base_Model():
     def test_step(self, input_agents):
         pred, gt = self.__forward_test(input_agents)
         loss_eval = self.loss_eval(pred, gt)
-        return pred, loss_eval, gt
+        for i, pred_curr in enumerate(pred):
+            input_agents[i].pred = pred_curr.numpy()
+
+        return pred, loss_eval, gt, input_agents
     
     def train(self, agents_train, agents_test):
         train_agents_number = len(agents_train)
@@ -151,17 +155,17 @@ class __Base_Model():
                 self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
-                pred_test, loss_eval, _ = self.test_step(agents_test)
+                pred_test, loss_eval, _, _ = self.test_step(agents_test)
                 test_results.append(loss_eval)
 
                 with summary_writer.as_default():
                     for (loss, name) in zip(loss_eval, self.loss_eval_namelist):
                         tf.summary.scalar(name, loss, step=epoch)
 
-                print('epoch {}/{}, train_loss={:.5f}, test_loss={}'.format(epoch + 1, self.args.epochs, ADE/batch_number, self.create_loss_eval_dict(loss_eval)))
+                print('epoch {}/{}, train_loss={:.5f}, test_loss={}'.format(epoch + 1, self.args.epochs, ADE/batch_number, self.create_loss_eval_dict(loss_eval)), flush=True, end='\r')
             
             else:
-                print('epoch {}/{}, train_loss={:.5f}'.format(epoch + 1, self.args.epochs, ADE/batch_number))
+                print('epoch {}/{}, train_loss={:.5f}'.format(epoch + 1, self.args.epochs, ADE/batch_number), flush=True, end='\r')
 
             if epoch == self.args.epochs - 1 and self.args.draw_results == True:
                 self.test(agents_test)
@@ -193,34 +197,13 @@ class __Base_Model():
     def test(self, agents_test):
         test_agents_number = len(agents_test)
         print('Start test:')    
-        pred_test, loss_eval, gt_test = self.test_step(agents_test)
+        pred_test, loss_eval, gt_test, agents_test = self.test_step(agents_test)
         print('test_loss={}'.format(self.create_loss_eval_dict(loss_eval)))
         for loss in loss_eval:
             print(loss, end='\t')
         print('\nTest done.')
 
-        if self.args.draw_results:
-            save_base_dir = dir_check(os.path.join(self.log_dir, 'test_figs/'))
-            save_format = os.path.join(save_base_dir, 'pic{}.png')
-            plt.figure()
-            for i, (pred, gt, agent) in enumerate(zip(pred_test.numpy(), gt_test.numpy(), agents_test)):
-                print('Saving fig {}...'.format(i), end='\r')
-                
-                obs = agent.traj_train
-                plt.plot(pred.T[0], pred.T[1], '-*')
-                plt.plot(gt.T[0], gt.T[1], '-o')
-                plt.plot(obs.T[0], obs.T[1], '-o')
-            
-                plt.axis('scaled')
-                plt.title('ADE={:.2f}, frame=[{}, {}]'.format(
-                    calculate_ADE_single(pred, gt),
-                    agent.start_frame,
-                    agent.end_frame,
-                ))
-                plt.savefig(save_format.format(i))
-                plt.close()
-            
-            print('Saving done.\t\t')
+        draw_test_results(agents_test, self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
 
 
 class FullAttention_LSTM(__Base_Model):
@@ -231,13 +214,41 @@ class FullAttention_LSTM(__Base_Model):
         super().__init__(agents, args)
 
     def create_model(self):
-        lstm = keras.Sequential([
-            keras.layers.Dense(64),     
-            keras.layers.LSTM(64),  
-            keras.layers.Dense(self.args.pred_frames * 16), 
-            keras.layers.Reshape([self.args.pred_frames, 16]),
-            keras.layers.Dense(2), 
-        ])
+        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        output1 = keras.layers.Dense(64)(inputs)
+        output2 = keras.layers.LSTM(64)(output1)
+        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2)
+        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
+        output5 = keras.layers.Dense(2)(output4)
+        lstm = keras.Model(inputs=inputs, outputs=output5)
+
+        # lstm = keras.Sequential([
+        #     keras.layers.Dense(64),     
+        #     keras.layers.LSTM(64),  
+        #     keras.layers.Dense(self.args.pred_frames * 16), 
+        #     keras.layers.Reshape([self.args.pred_frames, 16]),
+        #     keras.layers.Dense(2), 
+        # ])
+
+        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        print(lstm.summary())
+        return lstm, lstm_optimizer
+
+
+class FFC(__Base_Model):
+    def __init__(self, agents, args):
+        super().__init__(agents, args)
+
+    def create_model(self):
+        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        output1 = keras.layers.Dense(64)(inputs)
+        output2 = keras.layers.LSTM(64)(output1)
+        output2_att = tf.nn.softmax(output2)
+        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2_att)
+        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
+        output5 = keras.layers.Dense(2)(output4)
+        lstm = keras.Model(inputs=inputs, outputs=output5)
 
         lstm.build(input_shape=[None, self.args.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
@@ -458,9 +469,6 @@ class Linear(__Base_Model):
         return tf.stack(results)
 
     
-    
-
-    
 
 """
 helpmethods
@@ -483,9 +491,12 @@ def softmax(x):
 
 def calculate_ADE_single(pred, GT):
     """input_shape = [pred_frames, 2]"""
+    if not len(pred.shape) == 3:
+        pred = tf.reshape(pred, [1, pred.shape[0], pred.shape[1]])
+    
     pred = tf.cast(pred, tf.float32)
     GT = tf.cast(GT, tf.float32)
-    return tf.reduce_mean(tf.linalg.norm(pred - GT, ord=2, axis=1))
+    return tf.reduce_mean(tf.linalg.norm(pred - GT, ord=2, axis=2))
 
 
 def calculate_ADE(pred, GT):

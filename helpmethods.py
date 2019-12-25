@@ -2,12 +2,11 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-20 10:25:38
+@LastEditTime : 2019-12-25 11:08:49
 @Description: file content
 '''
 
 import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -210,3 +209,53 @@ def draw_results(feature, result, all_traj='null', detail_save_path='null', whol
         plt.axis('scaled')
         plt.savefig(whole_save_path)
         plt.close()
+
+
+def draw_test_results(agents_test, log_dir, loss_function, save=True):
+    if save:
+        save_base_dir = dir_check(os.path.join(log_dir, 'test_figs/'))
+        save_format = os.path.join(save_base_dir, '{}-pic{}.png')
+    
+    loss_static = []
+    loss_move = []
+    for i, agent in enumerate(agents_test):
+        obs = agent.traj_train
+        gt = agent.traj_gt
+        pred = agent.pred
+
+        if len(pred.shape) == 3:
+            pred_mean = np.mean(agent.pred, axis=0)
+        else:
+            pred_mean = pred
+
+        loss = loss_function(pred_mean, gt)
+        if np.linalg.norm(obs[0] - gt[-1]) <= 1.0:
+            state = 's'
+            loss_static.append(loss)
+        else:
+            state = 'n'
+            loss_move.append(loss)
+        
+        if save:
+            print('Saving fig {}...'.format(i), end='\r')
+            plt.figure()
+            plt.plot(pred.T[0], pred.T[1], '-*')
+            plt.plot(gt.T[0], gt.T[1], '-o')
+            plt.plot(obs.T[0], obs.T[1], '-o')
+        
+            plt.axis('scaled')
+            plt.title('ADE={:.2f}, frame=[{}, {}]'.format(
+                loss,
+                agent.start_frame,
+                agent.end_frame,
+            ))
+            plt.savefig(save_format.format(state, i))
+            plt.close()
+    
+    loss_static = np.mean(np.stack(loss_static))
+    loss_move = np.mean(np.stack(loss_move))
+    
+    if save:
+        print('\nSaving done.')
+    print('loss_s = {}, loss_n = {}'.format(loss_static, loss_move))
+    

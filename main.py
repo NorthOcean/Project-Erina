@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-20 15:04:55
+@LastEditTime : 2019-12-25 11:10:09
 @Description: file content
 '''
 import argparse
@@ -29,29 +29,30 @@ def get_parser():
     # basic settings
     parser.add_argument('--obs_frames', type=int, default=8)
     parser.add_argument('--pred_frames', type=int, default=12)
-    parser.add_argument('--total_frames', type=int, default=20) # UNUSED
-    parser.add_argument('--test_set', type=int, default=0)
-    parser.add_argument('--start_test_percent', type=float, default=0.7)
-    parser.add_argument('--test_step', type=int, default=3)
-    parser.add_argument('--temp_data_dir', type=str, default='./TEMP/')
+    parser.add_argument('--test_set', type=int, default=2)
     parser.add_argument('--gpu', type=int, default=1)
-    parser.add_argument('--train_percent', type=float, default=0.8)
 
-    # training args (for all models)
-    parser.add_argument('--step', type=int, default=4)  # 数据集滑动窗步长
+    # training data settings
+    parser.add_argument('--train_percent', type=float, default=0.7) # 用于训练数据的百分比
+    parser.add_argument('--step', type=int, default=4)              # 数据集滑动窗步长
+    parser.add_argument('--reverse', type=int, default=True)       # 按时间轴翻转训练数据
+    parser.add_argument('--add_noise', type=int, default=0)         # 训练数据添加噪声
+
+    # test settings
+    parser.add_argument('--start_test_percent', type=float, default=0.7)    
+    parser.add_argument('--test_step', type=int, default=3)     # 训练时每test_step个epoch，test一次
+    
+    # training settings
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--batch_size', type=int, default=500)
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--save_log_step', type=int, default=50)
+   
+    # save/load settings
     parser.add_argument('--model_name', type=str, default='model')
-    parser.add_argument('--save_model', type=bool, default=True)
+    parser.add_argument('--save_model', type=int, default=True)
     parser.add_argument('--load', type=str, default='null')
-    parser.add_argument('--reverse', type=bool, default=True)   # 按时间轴翻转训练数据
-    parser.add_argument('--add_noise', type=int, default=0)    # 训练数据添加噪声
-
-    # save args
-    parser.add_argument('--draw_results', type=bool, default=True)
+    parser.add_argument('--draw_results', type=int, default=True)
     parser.add_argument('--save_base_dir', type=str, default='./logs')
     parser.add_argument('--log_dir', type=str, default='DO_NOT_CHANGE')
     parser.add_argument('--save_per_step', type=bool, default=True)
@@ -93,6 +94,8 @@ def main():
         model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
+    elif args.model == 'FFC':
+        model = FFC
 
     if args.load == 'null':
         inputs = Prepare_Train_Data(args).train_agents

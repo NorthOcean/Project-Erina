@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-20 15:06:55
+@LastEditTime : 2019-12-25 10:41:30
 @Description: file content
 '''
 import numpy as np
@@ -15,7 +15,6 @@ from helpmethods import (
 )
 
 class Prepare_Train_Data():
-    """NO INTERACTION"""
     def __init__(self, args, save=True):
         self.args = args
         self.obs_frames = args.obs_frames
@@ -99,8 +98,8 @@ class Prepare_Train_Data():
         return video_neighbor_list, video_social_matrix, video_matrix
 
     def prepare_video_matrix(self, person_data, frame_data, save=True):
-        person_list = np.stack([float(person) for person in person_data]).astype(np.str)
-        frame_list = np.stack([float(frame) for frame in frame_data]).astype(np.str)
+        person_list = np.sort(np.stack([float(person) for person in person_data])).astype(np.str)
+        frame_list = np.sort(np.stack([float(frame) for frame in frame_data])).astype(np.str)
 
         person_number = len(person_list)
         frame_number = len(frame_list)
@@ -110,7 +109,7 @@ class Prepare_Train_Data():
             person_index = np.where(person_list == person)[0][0]
 
             frame_list_current = (person_data[person]).T[0].astype(np.str)
-            frame_index_current = np.reshape(np.stack([np.where(frame_current == frame_list_current) for frame_current in frame_list_current]), [-1])
+            frame_index_current = np.reshape(np.stack([np.where(frame_current == frame_list) for frame_current in frame_list_current]), [-1])
             traj_current = person_data[person][:, 1:]
             video_matrix[frame_index_current, person_index, :] = traj_current
 
@@ -212,6 +211,8 @@ class Agent_Part():
         self.neighbor_list_current = neighbor_list[self.obs_length]
         self.social_vector_current = social_vector[self.obs_length]
 
+        self.pred = 0
+
         self.future_interaction = future_interaction
         if future_interaction:
             self.traj_pred = predict_linear_for_person(self.traj_train, self.total_frame)[self.obs_length:]
@@ -243,7 +244,6 @@ class Agent_Part():
             self.end_frame,
             self.future_interaction
         )
-        
 
 
 class Agent():
