@@ -22,6 +22,13 @@ from helpmethods import dir_check
 
 TIME = time.strftime('%Y%m%d-%H%M%S',time.localtime(time.time()))
 
+coe = 0
+coe_list = [
+    '?',
+    [[]],
+    [[15.481, 0, 720], [12.386, 0, 576]],
+]
+
 class Visualization():
     def __init__(self, background_image_path, args):
         self.root = Tk()
@@ -103,21 +110,16 @@ class Visualization():
     def print_list(self):
         print(self.inputs_list)
 
-coe = [
-    [15.481, 720],
-    [12.386, 576],
-    # [15.481, 720],
-]
 
 def pixel2real(x, y):
-    xr = coe[0][0] * (x/coe[0][1])
-    yr = coe[1][0] * (1 - y/coe[1][1])
+    xr = coe[0][1] + (coe[0][0] - coe[0][1]) * (x/coe[0][2])
+    yr = coe[1][1] + (coe[1][0] - coe[1][1]) * (1 - y/coe[1][2])
     return [yr, xr]
 
 
 def real2pixel(x, y):
-    xp = coe[0][1] * (1 - x / coe[0][0])  - 140
-    yp = coe[1][1] * (y / coe[1][0])
+    xp = coe[0][2] * (1 - (x - coe[0][1]) / (coe[0][0] - coe[0][1]))  - 140
+    yp = coe[1][2] * ((y - coe[1][1]) / (coe[1][0] - coe[1][1]))
     return [int(yp), int(xp)]
 
 
@@ -136,7 +138,7 @@ def get_parser():
     # save/load settings
     parser.add_argument('--model_name', type=str, default='model')
     parser.add_argument('--save_model', type=int, default=True)
-    parser.add_argument('--load', type=str, default='./logs/20191224-22190512000e-10NR-ED-LSTM-ED2/12000e-10NR-ED-')
+    parser.add_argument('--load', type=str, default='DO NOT USE')
     parser.add_argument('--draw_results', type=int, default=True)
     parser.add_argument('--save_base_dir', type=str, default='./logs')
     parser.add_argument('--log_dir', type=str, default='DO_NOT_CHANGE')
@@ -158,12 +160,25 @@ def gpu_config(args):
 
 
 def main():
+    global coe
     args = get_parser().parse_args()
     log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
     args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
+    coe = coe_list[args.test_set]
     gpu_config(args)
 
-    Visualization('./zara.png', args)
+    load_list = [
+        './logs/20191224-22185212000e-10NR-ED-LSTM-ED0/12000e-10NR-ED-',
+        './logs/20191224-22185912000e-10NR-ED-LSTM-ED1/12000e-10NR-ED-',
+        './logs/20191224-22190512000e-10NR-ED-LSTM-ED2/12000e-10NR-ED-',
+        './logs/20191224-22191112000e-10NR-ED-LSTM-ED3/12000e-10NR-ED-',
+        './logs/20191224-22191912000e-10NR-ED-LSTM-ED4/12000e-10NR-ED-',
+    ]
+
+    pic_path = os.path.join('./vis_background_image', '{}.png'.format(args.test_set))
+    args.load = load_list[args.test_set]
+
+    Visualization(pic_path, args)
 
 
 if __name__ == '__main__':
