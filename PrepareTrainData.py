@@ -194,7 +194,7 @@ class Prepare_Train_Data():
 
 
 class Agent_Part():
-    def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True):
+    def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True):
         self.start_frame = start_frame
         self.obs_frame = obs_frame
         self.end_frame = end_frame
@@ -205,11 +205,12 @@ class Agent_Part():
         self.traj_train = self.traj[:self.obs_length]
         self.traj_gt = self.traj[self.obs_length:]
 
-        self.neighbor_agent = []
-        self.neighbor_list = neighbor_list
-        self.social_vector = social_vector
-        self.neighbor_list_current = neighbor_list[self.obs_length]
-        self.social_vector_current = social_vector[self.obs_length]
+        if calculate_social:
+            self.neighbor_agent = []
+            self.neighbor_list = neighbor_list
+            self.social_vector = social_vector
+            self.neighbor_list_current = neighbor_list[self.obs_length]
+            self.social_vector_current = social_vector[self.obs_length]
 
         self.pred = 0
 
@@ -273,6 +274,17 @@ def calculate_distance_matrix(positions, exp=False):
     if exp:
         distance_matrix = np.exp(-0.2 * distance_matrix)
     return distance_matrix
+
+
+def prepare_agent_for_test(trajs, obs_frames, pred_frames):
+    agent_list = []
+    for traj in trajs:
+        agent_list.append(Agent_Part(
+            traj, 0, 0, 
+            0, obs_frames, obs_frames+pred_frames, 
+            future_interaction=False, calculate_social=False
+        ))
+    return agent_list
 
 
         

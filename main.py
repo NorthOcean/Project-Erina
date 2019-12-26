@@ -38,6 +38,7 @@ def get_parser():
     parser.add_argument('--add_noise', type=int, default=0)         # 训练数据添加噪声
 
     # test settings
+    parser.add_argument('--test', type=int, default=True)
     parser.add_argument('--start_test_percent', type=float, default=0.7)    
     parser.add_argument('--test_step', type=int, default=3)     # 训练时每test_step个epoch，test一次
     

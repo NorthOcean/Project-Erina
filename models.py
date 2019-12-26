@@ -45,7 +45,8 @@ class __Base_Model():
             self.train(self.agents_train, self.agents_test)
         else:
             self.load_data_and_model()
-            self.test(self.agents_test)
+            if self.args.test:
+                self.test(self.agents_test)
 
     def initial_dataset(self):
         self.obs_frames = self.args.obs_frames
