@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 11:09:17
+@LastEditTime : 2019-12-26 16:14:31
 @Description: file content
 '''
 import os
@@ -81,10 +81,10 @@ class __Base_Model():
         raise 'MODEL is not defined!'
         return model, optimizer
 
-    def loss(self, pred, gt):
+    def loss(self, pred, gt, obs='null'):
         return calculate_ADE(pred, gt)
 
-    def loss_eval(self, pred, gt):
+    def loss_eval(self, pred, gt, obs='null'):
         self.loss_eval_namelist = ['ADE', 'FDE']
         return calculate_ADE(pred, gt).numpy(), calculate_FDE(pred, gt).numpy()
 
@@ -100,7 +100,7 @@ class __Base_Model():
     def __forward_train(self, input_agents):
         input_trajs = tf.stack([agent.traj_train for agent in input_agents])
         gt = tf.stack([agent.traj_gt for agent in input_agents])
-        return self.forward_train(input_trajs, input_agents), gt
+        return self.forward_train(input_trajs, input_agents), gt, input_trajs
 
     def forward_test(self, inputs, gt='null', agents_test='null'):
         return self.model(inputs)
@@ -108,11 +108,11 @@ class __Base_Model():
     def __forward_test(self, input_agents):
         input_trajs = tf.stack([agent.traj_train for agent in input_agents])
         gt = tf.stack([agent.traj_gt for agent in input_agents])
-        return self.forward_test(input_trajs, gt, input_agents), gt
+        return self.forward_test(input_trajs, gt, input_agents), gt, input_trajs
 
     def test_step(self, input_agents):
-        pred, gt = self.__forward_test(input_agents)
-        loss_eval = self.loss_eval(pred, gt)
+        pred, gt, obs = self.__forward_test(input_agents)
+        loss_eval = self.loss_eval(pred, gt, obs=obs)
         for i, pred_curr in enumerate(pred):
             input_agents[i].pred = pred_curr.numpy()
 
@@ -147,8 +147,8 @@ class __Base_Model():
                 index_current = self.train_index[batch_start : batch_end]
 
                 with tf.GradientTape() as tape:
-                    pred_current, gt_current = self.__forward_train(agents_current)
-                    loss_ADE = self.loss(pred_current, gt_current)
+                    pred_current, gt_current, obs_current = self.__forward_train(agents_current)
+                    loss_ADE = self.loss(pred_current, gt_current, obs=obs_current)
                     ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
 
                 ADE += loss_ADE
@@ -204,7 +204,7 @@ class __Base_Model():
             print(loss, end='\t')
         print('\nTest done.')
 
-        draw_test_results(agents_test, self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
+        draw_test_results(agents_test, pred_test[0].numpy(), self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
 
 
 class FullAttention_LSTM(__Base_Model):
@@ -237,24 +237,54 @@ class FullAttention_LSTM(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class FFC(__Base_Model):
+class FC_test(__Base_Model):
     def __init__(self, agents, args):
         super().__init__(agents, args)
 
     def create_model(self):
+        embadding = keras.layers.Dense(64)
+        LSTM = keras.layers.LSTM(64)
+        MLP = keras.layers.Dense(self.args.pred_frames * 2*self.args.obs_frames)
+
         inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
-        output1 = keras.layers.Dense(64)(inputs)
-        output2 = keras.layers.LSTM(64)(output1)
-        output2_att = tf.nn.softmax(output2)
-        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2_att)
-        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
-        output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=inputs, outputs=output5)
+        output1 = embadding(inputs)
+        output2 = LSTM(output1)
+        output3 = MLP(output2)
+        output4 = keras.layers.Reshape([self.args.pred_frames, 2*self.args.obs_frames])(output3)
+        output5 = keras.layers.Dense(2)(output4)    #shape=[batch, 12, 2]
+
+        output5_reverse = tf.reverse(output5, axis=[1])
+        output6 = embadding(output5_reverse)
+        output7 = LSTM(output6)  # shape=[12, 64]
+        output8 = MLP(output7)
+        output9 = keras.layers.Reshape([self.args.obs_frames, 2*self.args.pred_frames])(output8)
+        rebuild = keras.layers.Dense(2)(output9)
+        rebuild_reverse = tf.reverse(rebuild, [1])
+        
+        lstm = keras.Model(inputs=inputs, outputs=[output5, rebuild_reverse])
 
         lstm.build(input_shape=[None, self.args.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         print(lstm.summary())
         return lstm, lstm_optimizer
+
+    def loss(self, pred, gt, obs='null'):
+        predict = pred[0]
+        rebuild = pred[1]
+        loss_ADE = calculate_ADE(predict, gt)
+        loss_rebuild = calculate_ADE(rebuild, obs)
+        return 1.0 * loss_ADE + 0.4 * loss_rebuild
+
+    def loss_eval(self, pred, gt, obs='null'):
+        self.loss_eval_namelist = ['ADE', 'FDE', 'L2_rebuild']
+        predict = pred[0]
+        rebuild = pred[1]
+        loss_ADE = calculate_ADE(predict, gt).numpy()
+        loss_FDE = calculate_FDE(predict, gt).numpy()
+        loss_rebuild = calculate_ADE(rebuild, obs).numpy()
+
+        return loss_ADE, loss_FDE, loss_rebuild
+
 
 
 class LSTM_Social(__Base_Model):

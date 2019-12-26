@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 11:08:49
+@LastEditTime : 2019-12-26 14:41:52
 @Description: file content
 '''
 
@@ -211,17 +211,17 @@ def draw_results(feature, result, all_traj='null', detail_save_path='null', whol
         plt.close()
 
 
-def draw_test_results(agents_test, log_dir, loss_function, save=True):
+def draw_test_results(agents_test, all_pred, log_dir, loss_function, save=True):
     if save:
         save_base_dir = dir_check(os.path.join(log_dir, 'test_figs/'))
         save_format = os.path.join(save_base_dir, '{}-pic{}.png')
     
     loss_static = []
     loss_move = []
-    for i, agent in enumerate(agents_test):
+    for i, (pred, agent) in enumerate(zip(all_pred, agents_test)):
         obs = agent.traj_train
         gt = agent.traj_gt
-        pred = agent.pred
+        # pred = agent.pred
 
         if len(pred.shape) == 3:
             pred_mean = np.mean(agent.pred, axis=0)

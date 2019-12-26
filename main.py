@@ -94,8 +94,8 @@ def main():
         model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
-    elif args.model == 'FFC':
-        model = FFC
+    elif args.model == 'FC_test':
+        model = FC_test
 
     if args.load == 'null':
         inputs = Prepare_Train_Data(args).train_agents
