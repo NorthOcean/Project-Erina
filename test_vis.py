@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-25 19:15:53
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 19:16:31
+@LastEditTime : 2019-12-27 09:39:05
 @Description: Visualization UI for prediction
 '''
 
@@ -120,7 +120,7 @@ class Visualization():
                     tags='inputs'
                 )
 
-            score = prediction_smooth(traj_current[0], result)
+            score = smooth_loss(traj_current[0], result)
             for score_one in score:
                 self.text_box.insert('end', '{:.2f},'.format(score_one))
             
@@ -148,7 +148,7 @@ class Visualization():
         print(self.realtime_switch_var.get())
 
 
-def prediction_smooth(obs, pred, step=2):
+def smooth_loss(obs, pred, step=2, return_min=False):
     start_point = obs[-step:]
     pred_frames = len(pred)
     score_list = []
@@ -161,7 +161,11 @@ def prediction_smooth(obs, pred, step=2):
         delta[frame] = pred[frame] - start_point[frame]
 
     cosine_list = [calculate_cosine(delta[frame-1], delta[frame]) for frame in range(1, pred_frames)]
-    return np.stack(cosine_list)
+
+    if return_min:
+        return np.stack(cosine_list).min()
+    else:
+        return np.stack(cosine_list)
 
 
 def calculate_cosine(p1, p2, absolute=True):
@@ -172,7 +176,6 @@ def calculate_cosine(p1, p2, absolute=True):
     if absolute:
         result = np.abs(result)
     return result
-
 
 
 def pixel2real(x, y):

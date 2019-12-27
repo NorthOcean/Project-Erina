@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-26 16:14:31
+@LastEditTime : 2019-12-27 14:09:19
 @Description: file content
 '''
 import os
@@ -81,42 +81,51 @@ class __Base_Model():
         raise 'MODEL is not defined!'
         return model, optimizer
 
-    def loss(self, pred, gt, obs='null'):
-        return calculate_ADE(pred, gt)
+    def loss(self, model_output, gt, obs='null'):
+        self.loss_namelist = ['ADE']
+        loss_ADE = calculate_ADE(model_output[0], gt)
+        loss_list = tf.stack([loss_ADE])
+        return loss_ADE, loss_list
 
-    def loss_eval(self, pred, gt, obs='null'):
+    def loss_eval(self, model_output, gt, obs='null'):
         self.loss_eval_namelist = ['ADE', 'FDE']
-        return calculate_ADE(pred, gt).numpy(), calculate_FDE(pred, gt).numpy()
+        return calculate_ADE(model_output[0], gt).numpy(), calculate_FDE(model_output[0], gt).numpy()
 
-    def create_loss_eval_dict(self, loss_eval):
+    def create_loss_dict(self, loss, name_list):
         dic = {}
-        for loss, name in zip(loss_eval, self.loss_eval_namelist):
+        for loss, name in zip(loss, name_list):
             dic[name] = loss
         return dic
 
     def forward_train(self, inputs, agents_train='null'):
-        return self.model(inputs)
+        output = self.model(inputs)
+        if not type(output) == list:
+            output = [output]
+        return output
 
     def __forward_train(self, input_agents):
-        input_trajs = tf.stack([agent.traj_train for agent in input_agents])
-        gt = tf.stack([agent.traj_gt for agent in input_agents])
+        input_trajs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
+        gt = tf.cast(tf.stack([agent.traj_gt for agent in input_agents]), tf.float32)
         return self.forward_train(input_trajs, input_agents), gt, input_trajs
 
     def forward_test(self, inputs, gt='null', agents_test='null'):
-        return self.model(inputs)
+        output = self.model(inputs)
+        if not type(output) == list:
+            output = [output]
+        return output
 
     def __forward_test(self, input_agents):
-        input_trajs = tf.stack([agent.traj_train for agent in input_agents])
-        gt = tf.stack([agent.traj_gt for agent in input_agents])
+        input_trajs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
+        gt = tf.cast(tf.stack([agent.traj_gt for agent in input_agents]), tf.float32)
         return self.forward_test(input_trajs, gt, input_agents), gt, input_trajs
 
     def test_step(self, input_agents):
-        pred, gt, obs = self.__forward_test(input_agents)
-        loss_eval = self.loss_eval(pred, gt, obs=obs)
-        for i, pred_curr in enumerate(pred):
-            input_agents[i].pred = pred_curr.numpy()
+        model_output, gt, obs = self.__forward_test(input_agents)
+        loss_eval = self.loss_eval(model_output, gt, obs=obs)
+        for i, output_curr in enumerate(model_output[0]):
+            input_agents[i].pred = output_curr.numpy()
 
-        return pred, loss_eval, gt, input_agents
+        return model_output, loss_eval, gt, input_agents
     
     def train(self, agents_train, agents_test):
         train_agents_number = len(agents_train)
@@ -140,6 +149,7 @@ class __Base_Model():
         for epoch in range(self.args.epochs):
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
+            loss_list = []
             for batch in range(batch_number):
                 batch_start = batch * self.args.batch_size
                 batch_end = tf.minimum((batch + 1) * self.args.batch_size, train_agents_number)
@@ -147,26 +157,41 @@ class __Base_Model():
                 index_current = self.train_index[batch_start : batch_end]
 
                 with tf.GradientTape() as tape:
-                    pred_current, gt_current, obs_current = self.__forward_train(agents_current)
-                    loss_ADE = self.loss(pred_current, gt_current, obs=obs_current)
+                    model_output_current, gt_current, obs_current = self.__forward_train(agents_current)
+                    loss_ADE, loss_list_current = self.loss(model_output_current, gt_current, obs=obs_current)
                     ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
 
                 ADE += loss_ADE
                 grads = tape.gradient(ADE_move_average, self.model.trainable_variables)
                 self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
+                loss_list.append(loss_list_current)
+            
+            loss_list = tf.reduce_mean(tf.stack(loss_list), axis=0).numpy()
+
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
-                pred_test, loss_eval, _, _ = self.test_step(agents_test)
+                model_output, loss_eval, _, _ = self.test_step(agents_test)
                 test_results.append(loss_eval)
 
                 with summary_writer.as_default():
                     for (loss, name) in zip(loss_eval, self.loss_eval_namelist):
                         tf.summary.scalar(name, loss, step=epoch)
 
-                print('epoch {}/{}, train_loss={:.5f}, test_loss={}'.format(epoch + 1, self.args.epochs, ADE/batch_number, self.create_loss_eval_dict(loss_eval)), flush=True, end='\r')
+                print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}, test_loss={}'.format(
+                    epoch + 1, 
+                    self.args.epochs, 
+                    ADE/batch_number, 
+                    self.create_loss_dict(loss_list, self.loss_namelist),
+                    self.create_loss_dict(loss_eval, self.loss_eval_namelist)
+                ), flush=True, end='\r')
             
             else:
-                print('epoch {}/{}, train_loss={:.5f}'.format(epoch + 1, self.args.epochs, ADE/batch_number), flush=True, end='\r')
+                print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}'.format(
+                    epoch + 1, 
+                    self.args.epochs, 
+                    ADE/batch_number,
+                    self.create_loss_dict(loss_list, self.loss_namelist)
+                ), flush=True, end='\r')
 
             if epoch == self.args.epochs - 1 and self.args.draw_results == True:
                 self.test(agents_test)
@@ -198,13 +223,13 @@ class __Base_Model():
     def test(self, agents_test):
         test_agents_number = len(agents_test)
         print('Start test:')    
-        pred_test, loss_eval, gt_test, agents_test = self.test_step(agents_test)
-        print('test_loss={}'.format(self.create_loss_eval_dict(loss_eval)))
+        model_output, loss_eval, gt_test, agents_test = self.test_step(agents_test)
+        print('test_loss={}'.format(self.create_loss_dict(loss_eval, self.loss_eval_namelist)))
         for loss in loss_eval:
             print(loss, end='\t')
         print('\nTest done.')
 
-        draw_test_results(agents_test, pred_test[0].numpy(), self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
+        draw_test_results(agents_test, model_output[0].numpy(), self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
 
 
 class FullAttention_LSTM(__Base_Model):
@@ -221,7 +246,7 @@ class FullAttention_LSTM(__Base_Model):
         output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2)
         output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
         output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=inputs, outputs=output5)
+        lstm = keras.Model(inputs=inputs, outputs=[output5])
 
         # lstm = keras.Sequential([
         #     keras.layers.Dense(64),     
@@ -237,7 +262,7 @@ class FullAttention_LSTM(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class FC_test(__Base_Model):
+class FC_cycle(__Base_Model):
     def __init__(self, agents, args):
         super().__init__(agents, args)
 
@@ -268,17 +293,19 @@ class FC_test(__Base_Model):
         print(lstm.summary())
         return lstm, lstm_optimizer
 
-    def loss(self, pred, gt, obs='null'):
-        predict = pred[0]
-        rebuild = pred[1]
+    def loss(self, model_output, gt, obs='null'):
+        self.loss_namelist = ['ADE', 'rebuild']
+        predict = model_output[0]
+        rebuild = model_output[1]
         loss_ADE = calculate_ADE(predict, gt)
         loss_rebuild = calculate_ADE(rebuild, obs)
-        return 1.0 * loss_ADE + 0.4 * loss_rebuild
+        loss_list = tf.stack([loss_ADE, loss_rebuild])
+        return 1.0 * loss_ADE + 0.4 * loss_rebuild, loss_list
 
-    def loss_eval(self, pred, gt, obs='null'):
+    def loss_eval(self, model_output, gt, obs='null'):
         self.loss_eval_namelist = ['ADE', 'FDE', 'L2_rebuild']
-        predict = pred[0]
-        rebuild = pred[1]
+        predict = model_output[0]
+        rebuild = model_output[1]
         loss_ADE = calculate_ADE(predict, gt).numpy()
         loss_FDE = calculate_FDE(predict, gt).numpy()
         loss_rebuild = calculate_ADE(rebuild, obs).numpy()
@@ -368,10 +395,6 @@ class LSTM_ED(__Base_Model):
         ae_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         print(ae.summary())
         return ae, ae_optimizer
-
-    def forward_train(self, inputs_train, agents_train='null'):
-        positions, _ = self.model(inputs_train)
-        return positions
     
     def forward_test(self, inputs_test, groundtruth_test, agents_test='null'):
         batch = inputs_test.shape[0]
@@ -389,11 +412,18 @@ class LSTM_ED(__Base_Model):
 
         self.loss_eval_namelist = ['ADE', 'FDE', 'mADE', 'mFDE', 'sA', 'sF', 'GP_ADE', 'GP_FDE']
         test_results = np.transpose(list2array(test_results), axes=[1, 0, 2, 3])
-        return tf.cast(test_results, tf.float32)
+        return [tf.cast(test_results, tf.float32)]
     
-    def loss_eval(self, pred, gt):
-        self.loss_eval_namelist = ['ADE', 'FDE', 'mADE', 'mFDE', 'sA', 'sF', 'GP_ADE', 'GP_FDE']
-        return self.choose_best_path(pred, gt)[1]
+    def loss(self, model_output, gt, obs='null'):
+        self.loss_namelist = ['ADE', 'smooth']
+        loss_ADE = calculate_ADE(model_output[0], gt)
+        loss_smoothness = smooth_loss(obs, model_output[0], step=1)
+        loss_list = tf.stack([loss_ADE, loss_smoothness])
+        return 1.0 * loss_ADE + 0.0 * loss_smoothness, loss_list
+    
+    def loss_eval(self, model_output, gt, obs='null'):
+        self.loss_eval_namelist = ['ADE', 'FDE', 'mADE', 'mFDE', 'sA', 'sF', 'GP_ADE', 'GP_FDE', 'smooth']
+        return self.choose_best_path(model_output[0], gt)[1]
     
     def choose_best_path(self, positions, groundtruth, choose='best'):
         positions = tf.cast(positions, tf.float32)
@@ -490,14 +520,14 @@ class Linear(__Base_Model):
         for inputs_current in inputs:
             results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))
         
-        return tf.stack(results)
+        return [tf.stack(results)]
 
     def forward_test(self, inputs, gt='null', agents_train='null'):
         results = []
         for inputs_current in inputs:
             results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))
         
-        return tf.stack(results)
+        return [tf.stack(results)]
 
     
 
@@ -550,5 +580,51 @@ def get_model_outputs(model, inputs, input_layer=0, output_layer=1):
         output = layer(inn)
         inn = output
     return output
+
+
+def smooth_loss(obs, pred, step=2, return_min=True, as_loss=True):
+    """
+    shape for inputs:
+    
+    `obs`: [batch, obs_frames, 2]
+    `pred`: [batch, pred_frames, 2]
+    """
+    start_point = obs[:, -step:, :]
+    pred_frames = pred.shape[1]
+
+    score_list = []
+    delta = []
+    for frame in range(step):
+        delta.append(pred[:, frame] - start_point[:, frame])
+
+    for frame in range(step, pred_frames):
+        delta.append(pred[:, frame] - pred[:, frame-step])
+    
+    delta = tf.transpose(tf.stack(delta), [1, 0, 2])
+    cosine_list = tf.stack([calculate_cosine(delta[:, frame-1, :], delta[:, frame, :]) for frame in range(1, pred_frames)])
+
+    if return_min:
+        cosine_list = tf.reduce_min(cosine_list, axis=0)
+    
+    if as_loss:
+        cosine_list = tf.reduce_mean(1.0 - cosine_list)
+    
+    return cosine_list
+
+
+def calculate_cosine(p1, p2, absolute=True):
+    """
+    shape for inputs:
+    
+    `p1`: [batch, 2]
+    `p2`: [batch, 2]
+    """
+    l_p1 = tf.linalg.norm(p1, axis=1)
+    l_p2 = tf.linalg.norm(p2, axis=1)
+    dot = tf.reduce_sum(p1 * p2, axis=1)
+    result = dot/(l_p1 * l_p2)
+    if absolute:
+        result = tf.abs(result)
+    return result
     
 

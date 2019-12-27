@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 19:14:39
+@LastEditTime : 2019-12-27 14:12:37
 @Description: file content
 '''
 import argparse
@@ -94,8 +94,8 @@ def main():
         model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
-    elif args.model == 'FC_test':
-        model = FC_test
+    elif args.model == 'FC_cycle':
+        model = FC_cycle
 
     if args.load == 'null':
         inputs = Prepare_Train_Data(args).train_agents
