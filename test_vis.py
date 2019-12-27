@@ -18,7 +18,10 @@ from PIL import Image, ImageTk
 
 from models import LSTM_ED
 from PrepareTrainData import prepare_agent_for_test
-from helpmethods import dir_check
+from helpmethods import (
+    dir_check,
+    predict_linear_for_person,
+)
 
 TIME = time.strftime('%Y%m%d-%H%M%S',time.localtime(time.time()))
 
@@ -54,15 +57,20 @@ class Visualization():
         self.canvas.pack()
 
         self.reset_buttom = Button(self.root, text="clear", command=self.reset)
-        self.reset_buttom.pack(fill="both", expand=True, padx=10, pady=10)
+        self.reset_buttom.pack(fill="both", expand=True, padx=5, pady=3)
 
         self.prediction_buttom = Button(self.root, text="Prediction!", command=self.prediction)
-        self.prediction_buttom.pack(fill="both", expand=True, padx=10, pady=10)
+        self.prediction_buttom.pack(fill="both", expand=True, padx=5, pady=3)
 
         self.test_buttom = Button(self.root, text="test", command=self.print_list)
-        self.test_buttom.pack(fill="both", expand=True, padx=10, pady=10)
+        self.test_buttom.pack(fill="both", expand=True, padx=5, pady=3)
 
+        self.text_box = Text(height=1)
+        self.text_box.pack(expand=True, padx=5, pady=3)
 
+        self.realtime_switch_var = IntVar()
+        self.realtime_switch = Checkbutton(self.root, text="Real Time Prediction", variable=self.realtime_switch_var)
+        self.realtime_switch.pack(expand=True, padx=5, pady=3)
 
         self.root.mainloop()
         cv2.destroyAllWindows()
@@ -79,20 +87,25 @@ class Visualization():
     def reset(self):
         self.inputs_list = []
         self.canvas.delete('inputs')
+        self.text_box.delete('1.0', 'end')
     
     def click_callback(self, event):
         x, y = [event.x, event.y]
         self.canvas.create_rectangle(x-4, y-4, x+4,
-                                y+4, fill='green', outline='white', width=3, tags='inputs')
+                                y+4, fill='white', outline='blue', width=3, tags='inputs')
 
         self.inputs_list.append(np.stack(pixel2real(x, y)))
         if len(self.inputs_list) > self.obs_frames:
             self.inputs_list.pop(0)
 
+        if self.realtime_switch_var.get():
+            self.prediction()
+
     def prediction(self):
         if len(self.inputs_list) < self.obs_frames:
             return
-            
+        
+        self.text_box.delete('1.0', 'end')
         traj_current = np.reshape(np.stack(self.inputs_list), [1, self.obs_frames, 2]).astype(np.float32)
         pred_k_list = np.stack([traj.numpy() for traj in self.pred_model.model(traj_current)[0]])
 
@@ -106,9 +119,60 @@ class Visualization():
                     width=3, 
                     tags='inputs'
                 )
+
+            score = prediction_smooth(traj_current[0], result)
+            for score_one in score:
+                self.text_box.insert('end', '{:.2f},'.format(score_one))
+            
+            if score.min() <= 0.6:
+                self.text_box.insert('end', '结果不可靠，开始尝试线性预测！')
+                linear_result = predict_linear_for_person(
+                    traj_current[0], 
+                    self.pred_frames+self.obs_frames, 
+                    different_weights=0.95
+                )[self.obs_frames:]
+
+                for point in linear_result:
+                    x, y = real2pixel(point[0], point[1])
+                    self.canvas.create_rectangle(
+                        x-4, y-4, x+4, y+4, 
+                        fill='red', 
+                        outline='red', 
+                        width=3, 
+                        tags='inputs'
+                    )
+
         
     def print_list(self):
         print(self.inputs_list)
+        print(self.realtime_switch_var.get())
+
+
+def prediction_smooth(obs, pred, step=2):
+    start_point = obs[-step:]
+    pred_frames = len(pred)
+    score_list = []
+
+    delta = np.zeros_like(pred)
+    for frame in range(step, pred_frames):
+        delta[frame] = pred[frame] - pred[frame-step]
+    
+    for frame in range(step):
+        delta[frame] = pred[frame] - start_point[frame]
+
+    cosine_list = [calculate_cosine(delta[frame-1], delta[frame]) for frame in range(1, pred_frames)]
+    return np.stack(cosine_list)
+
+
+def calculate_cosine(p1, p2, absolute=True):
+    l_p1 = np.linalg.norm(p1)
+    l_p2 = np.linalg.norm(p2)
+    dot = np.sum(p1 * p2)
+    result = dot/(l_p1 * l_p2)
+    if absolute:
+        result = np.abs(result)
+    return result
+
 
 
 def pixel2real(x, y):
