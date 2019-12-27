@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 19:48:36
+@LastEditTime : 2019-12-27 20:03:55
 @Description: file content
 '''
 import numpy as np
@@ -259,7 +259,7 @@ class Agent_Part():
         self.traj_coe = self.traj_max - self.traj_min
         # self.traj = (self.traj - self.traj_min)/self.traj_coe
         self.start_point = self.traj[0]
-        self.traj = self.traj - start_point
+        self.traj = self.traj - self.start_point
         self.initialize()
         return self.start_point
 

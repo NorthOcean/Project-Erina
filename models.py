@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 19:55:49
+@LastEditTime : 2019-12-27 20:04:33
 @Description: file content
 '''
 import os
@@ -75,14 +75,18 @@ class __Base_Model():
         
         self.agents_test = [self.agents[index] for index in test_index]
         self.test_index = test_index
+        
         if self.args.normalization:
-            self.test_bias = [self.start_point_list[index] for index in test_index]
+            self.test_bias = [agent.start_point for agent in self.agents_test]
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
         self.model = keras.models.load_model(base_path.format('.h5'))
         self.agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
+        
+        if self.args.normalization:
+            self.test_bias = [agent.start_point for agent in self.agents_test]
     
     def create_model(self):
         raise 'MODEL is not defined!'
