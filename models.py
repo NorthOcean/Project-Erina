@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 14:09:19
+@LastEditTime : 2019-12-27 19:55:49
 @Description: file content
 '''
 import os
@@ -58,6 +58,11 @@ class __Base_Model():
             return
 
         self.sample_number = len(self.agents)
+        if self.args.normalization:
+            self.start_point_list = []
+            for i in range(self.sample_number):
+                self.start_point_list.append(self.agents[i].normalization())
+
         self.sample_time = (1 + self.args.reverse) * (1 + self.args.add_noise)
         self.sample_number_original = int(self.sample_number/self.sample_time) 
 
@@ -70,6 +75,8 @@ class __Base_Model():
         
         self.agents_test = [self.agents[index] for index in test_index]
         self.test_index = test_index
+        if self.args.normalization:
+            self.test_bias = [self.start_point_list[index] for index in test_index]
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
@@ -229,7 +236,17 @@ class __Base_Model():
             print(loss, end='\t')
         print('\nTest done.')
 
-        draw_test_results(agents_test, model_output[0].numpy(), self.log_dir, loss_function=calculate_ADE_single, save=self.args.draw_results)
+        pred_traj = model_output[0].numpy()
+
+        draw_test_results(
+            agents_test, 
+            pred_traj, 
+            self.log_dir, 
+            loss_function=calculate_ADE_single, 
+            save=self.args.draw_results,
+            use_bias=self.args.normalization,
+            bias=self.test_bias
+        )
 
 
 class FullAttention_LSTM(__Base_Model):

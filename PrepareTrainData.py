@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-25 10:41:30
+@LastEditTime : 2019-12-27 19:48:36
 @Description: file content
 '''
 import numpy as np
@@ -195,27 +195,33 @@ class Prepare_Train_Data():
 
 class Agent_Part():
     def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True):
+        self.traj = traj
         self.start_frame = start_frame
         self.obs_frame = obs_frame
         self.end_frame = end_frame
         self.obs_length = obs_frame - start_frame
         self.total_frame = end_frame - start_frame
 
-        self.traj = traj
+        self.future_interaction = future_interaction
+        self.calculate_social = calculate_social   
+
+        self.neighbor_list = neighbor_list
+        self.social_vector = social_vector
+
+        self.initialize()     
+
+    def initialize(self):
         self.traj_train = self.traj[:self.obs_length]
         self.traj_gt = self.traj[self.obs_length:]
 
-        if calculate_social:
+        if self.calculate_social:
             self.neighbor_agent = []
-            self.neighbor_list = neighbor_list
-            self.social_vector = social_vector
-            self.neighbor_list_current = neighbor_list[self.obs_length]
-            self.social_vector_current = social_vector[self.obs_length]
+            self.neighbor_list_current = self.neighbor_list[self.obs_length]
+            self.social_vector_current = self.social_vector[self.obs_length]
 
         self.pred = 0
 
-        self.future_interaction = future_interaction
-        if future_interaction:
+        if self.future_interaction:
             self.traj_pred = predict_linear_for_person(self.traj_train, self.total_frame)[self.obs_length:]
             # self.traj_pred = np.concatenate([self.traj_train, self.traj_future_predict], axis=0)
 
@@ -245,6 +251,17 @@ class Agent_Part():
             self.end_frame,
             self.future_interaction
         )
+    
+    def normalization(self):
+        """Attention: This method will change the value inside the agent!"""
+        self.traj_min = np.min(self.traj, axis=0)
+        self.traj_max = np.max(self.traj, axis=0)
+        self.traj_coe = self.traj_max - self.traj_min
+        # self.traj = (self.traj - self.traj_min)/self.traj_coe
+        self.start_point = self.traj[0]
+        self.traj = self.traj - start_point
+        self.initialize()
+        return self.start_point
 
 
 class Agent():

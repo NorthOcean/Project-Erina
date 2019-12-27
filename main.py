@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 14:12:37
+@LastEditTime : 2019-12-27 19:14:28
 @Description: file content
 '''
 import argparse
@@ -32,10 +32,11 @@ def get_parser():
     parser.add_argument('--gpu', type=int, default=1)
 
     # training data settings
-    parser.add_argument('--train_percent', type=float, default=0.7) # 用于训练数据的百分比
-    parser.add_argument('--step', type=int, default=4)              # 数据集滑动窗步长
-    parser.add_argument('--reverse', type=int, default=True)       # 按时间轴翻转训练数据
-    parser.add_argument('--add_noise', type=int, default=0)         # 训练数据添加噪声
+    parser.add_argument('--train_percent', type=float, default=0.7)     # 用于训练数据的百分比
+    parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
+    parser.add_argument('--reverse', type=int, default=True)            # 按时间轴翻转训练数据
+    parser.add_argument('--add_noise', type=int, default=False)         # 训练数据添加噪声
+    parser.add_argument('--normalization', type=int, default=False)
 
     # test settings
     parser.add_argument('--test', type=int, default=True)
