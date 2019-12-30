@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 17:13:04
+@LastEditTime : 2019-12-30 19:09:28
 @Description: file content
 '''
 import os
@@ -234,7 +234,7 @@ class __Base_Model():
             np.save(self.test_data_save_path.format('test'), test_data[0])   
             np.save(self.test_data_save_path.format('index'), test_data[1])
             np.save(self.test_data_save_path.format('args'), self.args)
-            print('Trained model is saved at "{}"'.format(self.model_save_path))
+            print('Trained model is saved at "{}"'.format(self.model_save_path.split('.h5')[0]))
     
     def test(self, agents_test):
         test_agents_number = len(agents_test)
