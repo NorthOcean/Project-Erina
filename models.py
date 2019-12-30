@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 20:04:33
+@LastEditTime : 2019-12-30 11:27:09
 @Description: file content
 '''
 import os
@@ -107,6 +107,17 @@ class __Base_Model():
         for loss, name in zip(loss, name_list):
             dic[name] = loss
         return dic
+
+    def forward(self, agents):
+        model_inputs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
+        outputs = self.model(model_inputs)
+        if not type(outputs) == list:
+            outputs = [outputs]
+        
+        pred_traj = outputs[0]
+        if self.args.normalization:
+            pred_traj += self.test_bias
+        return pred_traj
 
     def forward_train(self, inputs, agents_train='null'):
         output = self.model(inputs)

@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-25 19:15:53
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 09:39:05
+@LastEditTime : 2019-12-27 20:29:32
 @Description: Visualization UI for prediction
 '''
 
@@ -201,6 +201,7 @@ def get_parser():
 
     # test settings
     parser.add_argument('--test', type=int, default=False)
+    parser.add_argument('--normalization', type=ind, default=False)
    
     # save/load settings
     parser.add_argument('--model_name', type=str, default='model')
