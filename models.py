@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 11:27:09
+@LastEditTime : 2019-12-30 17:13:04
 @Description: file content
 '''
 import os
@@ -77,6 +77,7 @@ class __Base_Model():
         self.model = keras.models.load_model(base_path.format('.h5'))
         self.agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
+        self.args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
     
     def create_model(self):
         raise 'MODEL is not defined!'
@@ -232,6 +233,7 @@ class __Base_Model():
             self.model.save(self.model_save_path)
             np.save(self.test_data_save_path.format('test'), test_data[0])   
             np.save(self.test_data_save_path.format('index'), test_data[1])
+            np.save(self.test_data_save_path.format('args'), self.args)
             print('Trained model is saved at "{}"'.format(self.model_save_path))
     
     def test(self, agents_test):

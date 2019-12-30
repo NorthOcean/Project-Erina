@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 16:38:18
+@LastEditTime : 2019-12-30 17:33:27
 @Description: file content
 '''
 import argparse
@@ -84,6 +84,14 @@ def gpu_config(args):
 
 def main():
     args = get_parser().parse_args()
+    if args.load == 'null':
+        inputs = Prepare_Train_Data(args).train_agents
+    else:
+        inputs = 0
+        args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
+        args_load.load = args.load
+        args = args_load
+    
     log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
     args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
     gpu_config(args)
@@ -98,11 +106,6 @@ def main():
         model = Linear
     elif args.model == 'FC_cycle':
         model = FC_cycle
-
-    if args.load == 'null':
-        inputs = Prepare_Train_Data(args).train_agents
-    else:
-        inputs = 0
 
     model(agents=inputs, args=args).run_commands()
 
