@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 20:03:55
+@LastEditTime : 2019-12-30 16:39:02
 @Description: file content
 '''
 import numpy as np
@@ -163,7 +163,7 @@ class Prepare_Train_Data():
                 video_matrix, 
                 self.args.god_position, 
                 future_interaction=self.args.future_interaction,
-                calculate_social=False, # self.args.calculate_social,
+                calculate_social=self.args.calculate_social,
                 normalization=self.args.normalization,
             ))
 
@@ -185,10 +185,13 @@ class Prepare_Train_Data():
                     frame_point+self.obs_frames, 
                     frame_point+self.total_frames,
                 )
-                neighbor_list_current = agent_sample.neighbor_list_current
-                for neighbor in neighbor_list_current:
-                    neighbor_agent = all_agents[neighbor](frame_point, frame_point+self.obs_frames, frame_point+self.pred_frames)
-                    agent_sample.neighbor_agent.append(neighbor_agent)
+
+                if agent_sample.calculate_social:
+                    neighbor_list_current = agent_sample.neighbor_list_current
+                    for neighbor in neighbor_list_current:
+                        neighbor_agent = all_agents[neighbor](frame_point, frame_point+self.obs_frames, frame_point+self.pred_frames)
+                        agent_sample.neighbor_agent.append(neighbor_agent)
+                        
                 train_agents.append(agent_sample)
 
         train_samples_number = len(train_agents)

@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 19:14:28
+@LastEditTime : 2019-12-30 16:38:18
 @Description: file content
 '''
 import argparse
@@ -69,7 +69,8 @@ def get_parser():
     # Social args
     parser.add_argument('--max_neighbor', type=int, default=6)
     parser.add_argument('--god_position', type=float, default=20)
-    parser.add_argument('--future_interaction', type=bool, default=True)
+    parser.add_argument('--future_interaction', type=int, default=True)
+    parser.add_argument('--calculate_social', type=int, default=False)
     return parser
 
 
