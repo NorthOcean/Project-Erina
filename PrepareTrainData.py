@@ -156,7 +156,16 @@ class Prepare_Train_Data():
         all_agents = []
         train_agents = []
         for person in range(person_number):
-            all_agents.append(Agent(person, video_neighbor_list, video_social_matrix, video_matrix, self.args.god_position, self.args.future_interaction))
+            all_agents.append(Agent(
+                person, 
+                video_neighbor_list, 
+                video_social_matrix, 
+                video_matrix, 
+                self.args.god_position, 
+                future_interaction=self.args.future_interaction,
+                calculate_social=False, # self.args.calculate_social,
+                normalization=self.args.normalization,
+            ))
 
         train_agents = []
         train_agents_r = []
@@ -171,7 +180,11 @@ class Prepare_Train_Data():
                     break
                 
                 # type: Agent_Part
-                agent_sample = agent_current(frame_point, frame_point+self.obs_frames, frame_point+self.total_frames)
+                agent_sample = agent_current(
+                    frame_point, 
+                    frame_point+self.obs_frames, 
+                    frame_point+self.total_frames,
+                )
                 neighbor_list_current = agent_sample.neighbor_list_current
                 for neighbor in neighbor_list_current:
                     neighbor_agent = all_agents[neighbor](frame_point, frame_point+self.obs_frames, frame_point+self.pred_frames)
@@ -194,8 +207,10 @@ class Prepare_Train_Data():
 
 
 class Agent_Part():
-    def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True):
+    def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False):
         self.traj = traj
+        self.pred = 0
+        self.start_point = self.traj[0]
         self.start_frame = start_frame
         self.obs_frame = obs_frame
         self.end_frame = end_frame
@@ -203,12 +218,16 @@ class Agent_Part():
         self.total_frame = end_frame - start_frame
 
         self.future_interaction = future_interaction
-        self.calculate_social = calculate_social   
+        self.calculate_social = calculate_social  
+        self.normalization = normalization 
 
         self.neighbor_list = neighbor_list
         self.social_vector = social_vector
-
-        self.initialize()     
+        
+        self.already_fixed = False
+        self.initialize()  
+        if normalization:
+            self.agent_normalization()   
 
     def initialize(self):
         self.traj_train = self.traj[:self.obs_length]
@@ -218,8 +237,6 @@ class Agent_Part():
             self.neighbor_agent = []
             self.neighbor_list_current = self.neighbor_list[self.obs_length]
             self.social_vector_current = self.social_vector[self.obs_length]
-
-        self.pred = 0
 
         if self.future_interaction:
             self.traj_pred = predict_linear_for_person(self.traj_train, self.total_frame)[self.obs_length:]
@@ -252,7 +269,7 @@ class Agent_Part():
             self.future_interaction
         )
     
-    def normalization(self):
+    def agent_normalization(self):
         """Attention: This method will change the value inside the agent!"""
         self.traj_min = np.min(self.traj, axis=0)
         self.traj_max = np.max(self.traj, axis=0)
@@ -261,12 +278,23 @@ class Agent_Part():
         self.start_point = self.traj[0]
         self.traj = self.traj - self.start_point
         self.initialize()
-        return self.start_point
+
+    def pred_fix(self):
+        if self.already_fixed:
+            return
+        
+        self.already_fixed = True
+        self.traj = self.traj + self.start_point * self.normalization
+        self.pred = self.pred + self.start_point * self.normalization
+        self.initialize()
 
 
 class Agent():
-    def __init__(self, agent_index, video_neighbor_list, video_social_matrix, video_matrix, god_position, future_interaction=True):
+    def __init__(self, agent_index, video_neighbor_list, video_social_matrix, video_matrix, god_position, future_interaction=True, calculate_social=True, normalization=False):
         self.future_interaction = future_interaction
+        self.calculate_social = calculate_social
+        self.normalization = normalization
+
         self.traj = video_matrix[:, agent_index, :]
         self.neighbor_list = [neighbor_list[agent_index] for neighbor_list in video_neighbor_list]
         self.social_vector = video_social_matrix[:, agent_index, :]
@@ -280,7 +308,17 @@ class Agent():
         neighbor_list = [self.neighbor_list[frame] for frame in range(start_frame, end_frame)]
         social_vector = self.social_vector[start_frame:end_frame]
 
-        return Agent_Part(traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, self.future_interaction)
+        return Agent_Part(
+            traj, 
+            neighbor_list, 
+            social_vector, 
+            start_frame, 
+            obs_frame, 
+            end_frame, 
+            future_interaction=self.future_interaction, 
+            calculate_social=self.calculate_social, 
+            normalization=self.normalization
+        )
 
 
 def calculate_distance_matrix(positions, exp=False):
@@ -293,13 +331,13 @@ def calculate_distance_matrix(positions, exp=False):
     return distance_matrix
 
 
-def prepare_agent_for_test(trajs, obs_frames, pred_frames):
+def prepare_agent_for_test(trajs, obs_frames, pred_frames, normalization=False):
     agent_list = []
     for traj in trajs:
         agent_list.append(Agent_Part(
             traj, 0, 0, 
             0, obs_frames, obs_frames+pred_frames, 
-            future_interaction=False, calculate_social=False
+            future_interaction=False, calculate_social=False, normalization=normalization
         ))
     return agent_list
 

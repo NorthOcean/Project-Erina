@@ -46,7 +46,8 @@ class __Base_Model():
         else:
             self.load_data_and_model()
             if self.args.test:
-                self.test(self.agents_test)
+                self.agents_test = self.test(self.agents_test)
+                self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
         self.obs_frames = self.args.obs_frames
@@ -58,11 +59,6 @@ class __Base_Model():
             return
 
         self.sample_number = len(self.agents)
-        if self.args.normalization:
-            self.start_point_list = []
-            for i in range(self.sample_number):
-                self.start_point_list.append(self.agents[i].normalization())
-
         self.sample_time = (1 + self.args.reverse) * (1 + self.args.add_noise)
         self.sample_number_original = int(self.sample_number/self.sample_time) 
 
@@ -75,18 +71,12 @@ class __Base_Model():
         
         self.agents_test = [self.agents[index] for index in test_index]
         self.test_index = test_index
-        
-        if self.args.normalization:
-            self.test_bias = [agent.start_point for agent in self.agents_test]
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
         self.model = keras.models.load_model(base_path.format('.h5'))
         self.agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
-        
-        if self.args.normalization:
-            self.test_bias = [agent.start_point for agent in self.agents_test]
     
     def create_model(self):
         raise 'MODEL is not defined!'
@@ -108,16 +98,18 @@ class __Base_Model():
             dic[name] = loss
         return dic
 
-    def forward(self, agents):
+    def forward(self, input_agents):
+        """This method is a direct IO"""
         model_inputs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
         outputs = self.model(model_inputs)
         if not type(outputs) == list:
             outputs = [outputs]
         
-        pred_traj = outputs[0]
-        if self.args.normalization:
-            pred_traj += self.test_bias
-        return pred_traj
+        pred_traj = outputs[0].numpy()
+        for i in range(len(input_agents)):
+            input_agents[i].pred = pred_traj[i]
+            input_agents[i].pred_fix()
+        return input_agents
 
     def forward_train(self, inputs, agents_train='null'):
         output = self.model(inputs)
@@ -246,21 +238,22 @@ class __Base_Model():
         test_agents_number = len(agents_test)
         print('Start test:')    
         model_output, loss_eval, gt_test, agents_test = self.test_step(agents_test)
+        pred_traj = model_output[0].numpy()
+        for i in range(len(agents_test)):
+            agents_test[i].pred = pred_traj[i]
+
         print('test_loss={}'.format(self.create_loss_dict(loss_eval, self.loss_eval_namelist)))
         for loss in loss_eval:
             print(loss, end='\t')
         print('\nTest done.')
+        return agents_test
 
-        pred_traj = model_output[0].numpy()
-
+    def draw_pred_results(self, agents):
         draw_test_results(
-            agents_test, 
-            pred_traj, 
+            agents, 
             self.log_dir, 
             loss_function=calculate_ADE_single, 
-            save=self.args.draw_results,
-            use_bias=self.args.normalization,
-            bias=self.test_bias
+            save=self.args.draw_results
         )
 
 

@@ -106,46 +106,52 @@ class Visualization():
             return
         
         self.text_box.delete('1.0', 'end')
-        traj_current = np.reshape(np.stack(self.inputs_list), [1, self.obs_frames, 2]).astype(np.float32)
-        pred_k_list = np.stack([traj.numpy() for traj in self.pred_model.model(traj_current)[0]])
+        self.input_traj = np.reshape(np.stack(self.inputs_list), [1, self.obs_frames, 2]).astype(np.float32)    # shape=[1, 8, 2]
+        agent_list = prepare_agent_for_test(self.input_traj, self.obs_frames, self.pred_frames, normalization=self.args.normalization)
+        agent_list = self.pred_model.forward(agent_list)
 
-        for result in pred_k_list:
-            for point in result:
-                x, y = real2pixel(point[0], point[1])
-                self.canvas.create_rectangle(
-                    x-4, y-4, x+4, y+4, 
-                    fill='green', 
-                    outline='green', 
-                    width=3, 
-                    tags='inputs'
-                )
-
-            score = smooth_loss(traj_current[0], result)
-            for score_one in score:
-                self.text_box.insert('end', '{:.2f},'.format(score_one))
-            
-            if score.min() <= 0.6:
-                self.text_box.insert('end', '结果不可靠，开始尝试线性预测！')
-                linear_result = predict_linear_for_person(
-                    traj_current[0], 
-                    self.pred_frames+self.obs_frames, 
-                    different_weights=0.95
-                )[self.obs_frames:]
-
-                for point in linear_result:
+        for agent in agent_list:
+            all_pred_traj = agent.pred
+            if not len(all_pred_traj.shape) == 3:
+                all_pred_traj = [all_pred_traj]
+                
+            for result in all_pred_traj:
+                for point in result:
                     x, y = real2pixel(point[0], point[1])
                     self.canvas.create_rectangle(
                         x-4, y-4, x+4, y+4, 
-                        fill='red', 
-                        outline='red', 
+                        fill='green', 
+                        outline='green', 
                         width=3, 
                         tags='inputs'
                     )
 
+                score = smooth_loss(self.input_traj[0], result)
+                for score_one in score:
+                    self.text_box.insert('end', '{:.2f},'.format(score_one))
+                
+                if score.min() <= 0.6:
+                    self.text_box.insert('end', '结果不可靠，开始尝试线性预测！')
+                    linear_result = predict_linear_for_person(
+                        self.input_traj[0], 
+                        self.pred_frames+self.obs_frames, 
+                        different_weights=0.95
+                    )[self.obs_frames:]
+
+                    for point in linear_result:
+                        x, y = real2pixel(point[0], point[1])
+                        self.canvas.create_rectangle(
+                            x-4, y-4, x+4, y+4, 
+                            fill='red', 
+                            outline='red', 
+                            width=3, 
+                            tags='inputs'
+                        )
+
         
     def print_list(self):
         print(self.inputs_list)
-        print(self.realtime_switch_var.get())
+        print(agent_list)
 
 
 def smooth_loss(obs, pred, step=2, return_min=False):
@@ -201,7 +207,7 @@ def get_parser():
 
     # test settings
     parser.add_argument('--test', type=int, default=False)
-    parser.add_argument('--normalization', type=ind, default=False)
+    parser.add_argument('--normalization', type=int, default=True)
    
     # save/load settings
     parser.add_argument('--model_name', type=str, default='model')
