@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 19:09:28
+@LastEditTime : 2019-12-31 15:37:21
 @Description: file content
 '''
 import os
@@ -275,13 +275,25 @@ class FullAttention_LSTM(__Base_Model):
         output5 = keras.layers.Dense(2)(output4)
         lstm = keras.Model(inputs=inputs, outputs=[output5])
 
-        # lstm = keras.Sequential([
-        #     keras.layers.Dense(64),     
-        #     keras.layers.LSTM(64),  
-        #     keras.layers.Dense(self.args.pred_frames * 16), 
-        #     keras.layers.Reshape([self.args.pred_frames, 16]),
-        #     keras.layers.Dense(2), 
-        # ])
+        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        print(lstm.summary())
+        return lstm, lstm_optimizer
+
+
+class RealFC(__Base_Model):
+    def __init__(self, agents, args):
+        super().__init__(agents, args)
+    
+    def create_model(self):
+        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        output1 = keras.layers.Dense(64)(inputs)
+        output2 = keras.layers.LSTM(64, return_sequences=True)(output1)
+        output2_reshape = tf.reshape(output2, [-1, self.args.obs_frames * 64])
+        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2_reshape)
+        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
+        output5 = keras.layers.Dense(2)(output4)
+        lstm = keras.Model(inputs=inputs, outputs=[output5])
 
         lstm.build(input_shape=[None, self.args.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)

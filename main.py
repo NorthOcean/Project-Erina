@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 17:33:27
+@LastEditTime : 2019-12-31 15:37:39
 @Description: file content
 '''
 import argparse
@@ -104,8 +104,10 @@ def main():
         model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
-    elif args.model == 'FC_cycle':
+    elif args.model == 'cycle':
         model = FC_cycle
+    elif args.model == 'test':
+        model = RealFC
 
     model(agents=inputs, args=args).run_commands()
 
