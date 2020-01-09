@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 11:11:02
+@LastEditTime : 2020-01-09 19:21:53
 @Description: file content
 '''
 import argparse
@@ -109,10 +109,12 @@ def main():
         model = Linear
     elif args.model == 'cycle':
         model = FC_cycle
-    elif args.model == 'LSTM_cell':
+    elif args.model == 'LSTMcell':
         model = LSTMcell
-    elif args.model == 'test':
+    elif args.model == 'SSLSTM':
         model = SS_LSTM
+    elif args.model == 'test':
+        model = LSTM_FC_develop_beta
 
     model(train_info=inputs, args=args).run_commands()
 

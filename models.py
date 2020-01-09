@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 11:12:14
+@LastEditTime : 2020-01-09 21:28:10
 @Description: file content
 '''
 import os
@@ -11,6 +11,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
+from tqdm import tqdm
 from tensorflow import keras
 import matplotlib.pyplot as plt
 
@@ -78,7 +79,7 @@ class __Base_Model():
         return model, optimizer
 
     def loss(self, model_output, gt, obs='null'):
-        self.loss_namelist = ['ADE']
+        self.loss_namelist = ['ADE_t']
         loss_ADE = calculate_ADE(model_output[0], gt)
         loss_list = tf.stack([loss_ADE])
         return loss_ADE, loss_list
@@ -150,7 +151,9 @@ class __Base_Model():
         
         print('Start training:')
         test_results = []
-        for epoch in range(self.args.epochs):
+        test_loss_dict = dict()
+        test_loss_dict['Oops!'] = 'Unkwon'
+        for epoch in (time_bar := tqdm(range(self.args.epochs))):
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
             loss_list = []
@@ -176,29 +179,34 @@ class __Base_Model():
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
                 model_output, loss_eval, _, _ = self.test_step(self.agents_test)
                 test_results.append(loss_eval)
+                test_loss_dict = self.create_loss_dict(loss_eval, self.loss_eval_namelist)
 
                 with summary_writer.as_default():
                     for (loss, name) in zip(loss_eval, self.loss_eval_namelist):
                         tf.summary.scalar(name, loss, step=epoch)
-
-                print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}, test_loss={}'.format(
-                    epoch + 1, 
-                    self.args.epochs, 
-                    ADE/batch_number, 
-                    self.create_loss_dict(loss_list, self.loss_namelist),
-                    self.create_loss_dict(loss_eval, self.loss_eval_namelist)
-                ), flush=True, end='\r')
             
-            else:
-                print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}'.format(
-                    epoch + 1, 
-                    self.args.epochs, 
-                    ADE/batch_number,
-                    self.create_loss_dict(loss_list, self.loss_namelist)
-                ), flush=True, end='\r')
+            train_loss_dict = self.create_loss_dict(loss_list, self.loss_namelist)
+            show_dict = dict(train_loss_dict, **test_loss_dict)
+            time_bar.set_postfix(show_dict)
 
-            if epoch == self.args.epochs - 1 and self.args.draw_results == True:
-                self.test(self.agents_test)
+            #     print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}, test_loss={}'.format(
+            #         epoch + 1, 
+            #         self.args.epochs, 
+            #         ADE/batch_number, 
+            #         self.create_loss_dict(loss_list, self.loss_namelist),
+            #         self.create_loss_dict(loss_eval, self.loss_eval_namelist)
+            #     ), flush=True, end='\r')
+            
+            # else:
+            #     print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}'.format(
+            #         epoch + 1, 
+            #         self.args.epochs, 
+            #         ADE/batch_number,
+            #         self.create_loss_dict(loss_list, self.loss_namelist)
+            #     ), flush=True, end='\r')
+
+            # if epoch == self.args.epochs - 1 and self.args.draw_results == True:
+            #     self.test(self.agents_test)
 
         print('Training done.')
         latest_epochs = 10
@@ -260,6 +268,26 @@ class LSTM_FC(__Base_Model):
         traj_feature = keras.layers.LSTM(64)(positions_embadding)
         output3 = keras.layers.Dense(self.args.pred_frames * 16)(traj_feature)
         output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
+        output5 = keras.layers.Dense(2)(output4)
+        lstm = keras.Model(inputs=positions, outputs=[output5])
+
+        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        print(lstm.summary())
+        return lstm, lstm_optimizer
+
+
+class LSTM_FC_develop_beta(__Base_Model):
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions_embadding = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64)(positions_embadding)
+        concat_feature = tf.concat([traj_feature, positions_embadding[:, -1, :]], axis=-1)
+        output3 = keras.layers.Dense(self.args.pred_frames * 32)(concat_feature)
+        output4 = keras.layers.Reshape([self.args.pred_frames, 32])(output3)
         output5 = keras.layers.Dense(2)(output4)
         lstm = keras.Model(inputs=positions, outputs=[output5])
 
@@ -370,7 +398,7 @@ class FC_cycle(__Base_Model):
         return lstm, lstm_optimizer
 
     def loss(self, model_output, gt, obs='null'):
-        self.loss_namelist = ['ADE', 'rebuild']
+        self.loss_namelist = ['ADE_t', 'rebuild_t']
         predict = model_output[0]
         rebuild = model_output[1]
         loss_ADE = calculate_ADE(predict, gt)
@@ -491,7 +519,7 @@ class LSTM_ED(__Base_Model):
         return [tf.cast(test_results, tf.float32)]
     
     def loss(self, model_output, gt, obs='null'):
-        self.loss_namelist = ['ADE', 'smooth']
+        self.loss_namelist = ['ADE_t', 'smooth_t']
         loss_ADE = calculate_ADE(model_output[0], gt)
         loss_smoothness = smooth_loss(obs, model_output[0], step=1)
         loss_list = tf.stack([loss_ADE, loss_smoothness])

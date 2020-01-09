@@ -2,13 +2,14 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 11:23:54
+@LastEditTime : 2020-01-09 20:49:15
 @Description: file content
 '''
 import os
 import random
 
 import numpy as np
+from tqdm import tqdm
 
 from helpmethods import dir_check, list2array, predict_linear_for_person
 
@@ -46,9 +47,10 @@ class Prepare_Train_Data():
         for dataset in train_list:
             train_agents_list.append(self.get_agents_from_dataset(dataset))
         
-        test_agents_list = []
-        for dataset in test_list:
-            test_agents_list.append(self.get_agents_from_dataset(dataset))
+        if self.args.train_type == 'all':
+            test_agents_list = []
+            for dataset in test_list:
+                test_agents_list.append(self.get_agents_from_dataset(dataset))
 
         if self.args.train_type == 'one':
             agents = train_agents_list[0][0]
@@ -195,7 +197,7 @@ class Prepare_Train_Data():
 
         video_social_matrix = np.zeros([frame_number, person_number, person_number])
         video_neighbor_list = []
-        for i, frame in enumerate(video_matrix):
+        for i, frame in enumerate(tqdm(video_matrix, desc='Calculate social matrix', ncols=300)):
             print('Calculate social matrix in frame {}/{}...'.format(i+1, frame_number), end='\r')
             matrix_half = calculate_distance_matrix(frame, exp=True) * person_enter_frame_smooth[:, i]  # 上三角数据有效
             matrix_total = np.minimum(matrix_half, matrix_half.T)
@@ -238,8 +240,8 @@ class Prepare_Train_Data():
                 self.args.god_position,
             ))
 
-        for person in range(person_number):
-            print('Calculate agent data {}/{}...'.format(person+1, person_number), end='\r')
+        for person in tqdm(range(person_number), desc='Calculate agent data'):
+            # print('Calculate agent data {}/{}...'.format(person+1, person_number), end='\r')
             agent_current = all_agents[person]
             start_frame = agent_current.start_frame
             end_frame = agent_current.end_frame
@@ -269,12 +271,15 @@ class Prepare_Train_Data():
         original_sample_number = len(agents)
 
         if self.args.reverse:
-            for index in range(original_sample_number):
+            # print('Preparing reverse data...')
+            for index in tqdm(range(original_sample_number), desc='Preparing reverse data'):
                 agents.append(agents[index].reverse())
 
         if self.args.add_noise:
-            for repeat in range(self.args.add_noise):
-                for index in range(original_sample_number):
+            # print('Preparing data with noise...')
+            current_sample_number = len(agents)
+            for repeat in tqdm(range(self.args.add_noise), desc='Preparing data with noise'):
+                for index in range(current_sample_number):
                     agents.append(agents[index].add_noise(u=0, sigma=0.1))
         
         return agents, original_sample_number
@@ -348,9 +353,9 @@ class Agent_Part():
         self.traj_min = np.min(self.traj, axis=0)
         self.traj_max = np.max(self.traj, axis=0)
         self.traj_coe = self.traj_max - self.traj_min
-        # self.traj = (self.traj - self.traj_min)/self.traj_coe
-        self.start_point = self.traj[0]
-        self.traj = self.traj - self.start_point
+        self.traj = (self.traj - self.traj_min)/self.traj_coe
+        # self.start_point = self.traj[0]
+        # self.traj = self.traj - self.start_point
         self.initialize()
 
     def pred_fix(self):
@@ -358,8 +363,10 @@ class Agent_Part():
             return
         
         self.already_fixed = True
-        self.traj = self.traj + self.start_point * self.normalization
-        self.pred = self.pred + self.start_point * self.normalization
+        # self.traj = self.traj + self.start_point * self.normalization
+        # self.pred = self.pred + self.start_point * self.normalization
+        self.traj = self.traj * self.traj_coe + self.traj_min
+        self.pred = self.pred * self.traj_coe + self.traj_min
         self.initialize()
 
 
