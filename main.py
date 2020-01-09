@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-31 15:37:39
+@LastEditTime : 2020-01-09 11:11:02
 @Description: file content
 '''
 import argparse
@@ -32,6 +32,9 @@ def get_parser():
     parser.add_argument('--gpu', type=int, default=1)
 
     # training data settings
+    parser.add_argument('--train_type', type=str, default='one')        
+    # 'one': 使用一个数据集按照分割训练集训练
+    # 'all': 使用除测试外的所有数据集训练
     parser.add_argument('--train_percent', type=float, default=0.7)     # 用于训练数据的百分比
     parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
     parser.add_argument('--reverse', type=int, default=True)            # 按时间轴翻转训练数据
@@ -62,7 +65,7 @@ def get_parser():
     parser.add_argument('--diff_weights', type=float, default=0.95)
 
     # LSTM args
-    parser.add_argument('--model', type=str, default='FullAttention_LSTM')
+    parser.add_argument('--model', type=str, default='LSTM_FC')
     parser.add_argument('--k', type=int, default=15)
     parser.add_argument('--save_k_results', type=bool, default=False)
 
@@ -85,7 +88,7 @@ def gpu_config(args):
 def main():
     args = get_parser().parse_args()
     if args.load == 'null':
-        inputs = Prepare_Train_Data(args).train_agents
+        inputs = Prepare_Train_Data(args).train_info
     else:
         inputs = 0
         args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
@@ -98,18 +101,20 @@ def main():
 
     if args.model == 'LSTM-ED':
         model = LSTM_ED
-    elif args.model == 'FullAttention_LSTM':
-        model = FullAttention_LSTM
+    elif args.model == 'LSTM_FC':
+        model = LSTM_FC
     elif args.model == 'LSTM-Social':
         model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
     elif args.model == 'cycle':
         model = FC_cycle
+    elif args.model == 'LSTM_cell':
+        model = LSTMcell
     elif args.model == 'test':
-        model = RealFC
+        model = SS_LSTM
 
-    model(agents=inputs, args=args).run_commands()
+    model(train_info=inputs, args=args).run_commands()
 
 
 if __name__ == "__main__":

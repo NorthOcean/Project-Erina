@@ -2,17 +2,16 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-30 16:39:02
+@LastEditTime : 2020-01-09 11:23:54
 @Description: file content
 '''
-import numpy as np
 import os
+import random
 
-from helpmethods import (
-    list2array,
-    dir_check,
-    predict_linear_for_person,
-)
+import numpy as np
+
+from helpmethods import dir_check, list2array, predict_linear_for_person
+
 
 class Prepare_Train_Data():
     def __init__(self, args, save=True):
@@ -30,19 +29,73 @@ class Prepare_Train_Data():
         self.log_dir = dir_check(args.log_dir)
         self.save_file_name = args.model_name + '_{}.npy'
         self.save_path = os.path.join(self.log_dir, self.save_file_name)
-        self.dataset_save_path = dir_check(os.path.join(dir_check('./dataset_npz/'), '{}/'.format(args.test_set)))
-        self.dataset_save_format = os.path.join(self.dataset_save_path, 'data.npz')
-
-        if os.path.exists(self.dataset_save_format):
-            video_neighbor_list, video_social_matrix, video_matrix = self.load_video_matrix()
-        else:
-            person_data, frame_data = self.data_loader()
-            video_neighbor_list, video_social_matrix, video_matrix = self.prepare_video_matrix(person_data, frame_data, save=save)
+        self.train_info = self.get_train_and_test_agents()
         
-        self.train_agents = self.get_agents(video_neighbor_list, video_social_matrix, video_matrix)
+    def get_train_and_test_agents(self):
+        dir_check('./dataset_npz/')
+        self.npy_file_base_path = './dataset_npz/{}/data.npz'
 
-    def data_loader(self):
-        dataset_index = self.args.test_set
+        if self.args.train_type == 'one':
+            train_list = [self.args.test_set]
+            test_list = [self.args.test_set]
+        elif self.args.train_type == 'all':
+            train_list = [index for index in range(5) if not index == self.args.test_set]
+            test_list = [self.args.test_set]
+            
+        train_agents_list = []
+        for dataset in train_list:
+            train_agents_list.append(self.get_agents_from_dataset(dataset))
+        
+        test_agents_list = []
+        for dataset in test_list:
+            test_agents_list.append(self.get_agents_from_dataset(dataset))
+
+        if self.args.train_type == 'one':
+            agents = train_agents_list[0][0]
+            sample_number_original = train_agents_list[0][1]
+            sample_number_total = len(agents)
+            sample_time = int(sample_number_total / sample_number_original)
+
+            index = set([i for i in range(sample_number_original)])
+            train_index = random.sample(index, int(sample_number_original * self.args.train_percent))
+            test_index = list(index - set(train_index))
+            
+            train_agents = [agents[(more_sample + 1) * index] for more_sample in range(sample_time) for index in train_index]
+            train_index = [(more_sample + 1) * index for more_sample in range(sample_time) for index in train_index]
+            
+            test_agents = [agents[index] for index in test_index]
+            test_index = test_index
+
+        elif self.args.train_type == 'all':
+            sample_number_original = 0
+            train_agents = []
+            for [agents, sample_number] in train_agents_list:
+                sample_number_original += sample_number
+                for agent_current in agents:
+                    train_agents.append(agent_current)
+            train_index = [i for i in range(len(train_agents))]
+            sample_number_total = len(train_agents)
+            sample_time = int(sample_number_total / sample_number_original)
+            
+            test_agents = []
+            for [agents, sample_number] in test_agents_list:
+                for index, agent_current in enumerate(agents):
+                    if index < sample_number / sample_time:
+                        test_agents.append(agent_current)
+            test_index = [i for i in range(len(test_agents))]
+        
+        train_info = dict()
+        train_info['train_agents'] = train_agents
+        train_info['train_index'] = train_index
+        train_info['test_agents'] = test_agents
+        train_info['test_index'] = test_index
+        train_info['train_number'] = len(train_index)
+        train_info['sample_time'] = sample_time      
+
+        return train_info
+
+    def data_loader(self, dataset_index):
+        # dataset_index = self.args.test_set
         dataset_dir = [
             './data/eth/univ',
             './data/eth/hotel',
@@ -90,14 +143,35 @@ class Prepare_Train_Data():
         print('Load dataset from csv file done.')
         return person_data, frame_data
 
-    def load_video_matrix(self):
-        all_data = np.load(self.dataset_save_format, allow_pickle=True)
+    def get_agents_from_dataset(self, dataset):
+        base_path = dir_check(os.path.join('./dataset_npz/', '{}'.format(dataset)))
+        npy_path = self.npy_file_base_path.format(dataset)
+
+        if os.path.exists(npy_path):
+            # 从保存的npy数据集文件中读
+            video_neighbor_list, video_social_matrix, video_matrix = self.load_video_matrix(dataset)
+        else:
+            # 新建npy数据集文件
+            person_data, frame_data = self.data_loader(dataset)
+            video_neighbor_list, video_social_matrix, video_matrix = self.create_video_matrix(
+                person_data, 
+                frame_data, 
+                save_path=npy_path
+            )
+    
+        agents, original_sample_number = self.get_agents(video_neighbor_list, video_social_matrix, video_matrix)
+        print('\nPrepare agent data in dataset {} done.'.format(dataset))
+        return agents, original_sample_number
+        
+    def load_video_matrix(self, dataset):
+        print('Load data from "{}"...'.format(self.npy_file_base_path.format(dataset)))
+        all_data = np.load(self.npy_file_base_path.format(dataset), allow_pickle=True)
         video_neighbor_list = all_data['video_neighbor_list']
         video_social_matrix = all_data['video_social_matrix']
         video_matrix = all_data['video_matrix']
         return video_neighbor_list, video_social_matrix, video_matrix
 
-    def prepare_video_matrix(self, person_data, frame_data, save=True):
+    def create_video_matrix(self, person_data, frame_data, save_path='null'):
         person_list = np.sort(np.stack([float(person) for person in person_data])).astype(np.str)
         frame_list = np.sort(np.stack([float(frame) for frame in frame_data])).astype(np.str)
 
@@ -141,9 +215,9 @@ class Prepare_Train_Data():
             video_neighbor_list.append(neighbor_list)
             video_social_matrix[i, :, :] = matrix_total
 
-        if save:
+        if not save_path == 'null':
             np.savez(
-                self.dataset_save_format, 
+                save_path, 
                 video_neighbor_list=video_neighbor_list,
                 video_social_matrix=video_social_matrix,
                 video_matrix=video_matrix,
@@ -154,23 +228,18 @@ class Prepare_Train_Data():
     def get_agents(self, video_neighbor_list, video_social_matrix, video_matrix):
         frame_number, person_number, _ = video_matrix.shape
         all_agents = []
-        train_agents = []
+        agents = []
         for person in range(person_number):
             all_agents.append(Agent(
                 person, 
                 video_neighbor_list, 
                 video_social_matrix, 
                 video_matrix, 
-                self.args.god_position, 
-                future_interaction=self.args.future_interaction,
-                calculate_social=self.args.calculate_social,
-                normalization=self.args.normalization,
+                self.args.god_position,
             ))
 
-        train_agents = []
-        train_agents_r = []
         for person in range(person_number):
-            print('Prepare agent data {}/{}...'.format(person+1, person_number), end='\r')
+            print('Calculate agent data {}/{}...'.format(person+1, person_number), end='\r')
             agent_current = all_agents[person]
             start_frame = agent_current.start_frame
             end_frame = agent_current.end_frame
@@ -184,6 +253,9 @@ class Prepare_Train_Data():
                     frame_point, 
                     frame_point+self.obs_frames, 
                     frame_point+self.total_frames,
+                    future_interaction=self.args.future_interaction,
+                    calculate_social=self.args.calculate_social,
+                    normalization=self.args.normalization,
                 )
 
                 if agent_sample.calculate_social:
@@ -192,21 +264,20 @@ class Prepare_Train_Data():
                         neighbor_agent = all_agents[neighbor](frame_point, frame_point+self.obs_frames, frame_point+self.pred_frames)
                         agent_sample.neighbor_agent.append(neighbor_agent)
                         
-                train_agents.append(agent_sample)
+                agents.append(agent_sample)
 
-        train_samples_number = len(train_agents)
+        original_sample_number = len(agents)
 
         if self.args.reverse:
-            for index in range(train_samples_number):
-                train_agents.append(train_agents[index].reverse())
+            for index in range(original_sample_number):
+                agents.append(agents[index].reverse())
 
         if self.args.add_noise:
             for repeat in range(self.args.add_noise):
-                for index in range(train_samples_number):
-                    train_agents.append(train_agents[index].add_noise(u=0, sigma=0.1))
+                for index in range(original_sample_number):
+                    agents.append(agents[index].add_noise(u=0, sigma=0.1))
         
-        print('Prepare agent data done.\t\t')
-        return train_agents
+        return agents, original_sample_number
 
 
 class Agent_Part():
@@ -293,11 +364,7 @@ class Agent_Part():
 
 
 class Agent():
-    def __init__(self, agent_index, video_neighbor_list, video_social_matrix, video_matrix, god_position, future_interaction=True, calculate_social=True, normalization=False):
-        self.future_interaction = future_interaction
-        self.calculate_social = calculate_social
-        self.normalization = normalization
-
+    def __init__(self, agent_index, video_neighbor_list, video_social_matrix, video_matrix, god_position):
         self.traj = video_matrix[:, agent_index, :]
         self.neighbor_list = [neighbor_list[agent_index] for neighbor_list in video_neighbor_list]
         self.social_vector = video_social_matrix[:, agent_index, :]
@@ -305,7 +372,7 @@ class Agent():
         self.start_frame = np.where(np.not_equal(self.traj.T[0], god_position))[0][0]
         self.end_frame = np.where(np.not_equal(self.traj.T[0], god_position))[0][-1] + 1    # 取不到
     
-    def __call__(self, start_frame, obs_frame, end_frame):
+    def __call__(self, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False):
         """end_frame is unreachable"""
         traj = self.traj[start_frame:end_frame]
         neighbor_list = [self.neighbor_list[frame] for frame in range(start_frame, end_frame)]
@@ -318,9 +385,9 @@ class Agent():
             start_frame, 
             obs_frame, 
             end_frame, 
-            future_interaction=self.future_interaction, 
-            calculate_social=self.calculate_social, 
-            normalization=self.normalization
+            future_interaction=future_interaction, 
+            calculate_social=calculate_social, 
+            normalization=normalization
         )
 
 
@@ -343,6 +410,3 @@ def prepare_agent_for_test(trajs, obs_frames, pred_frames, normalization=False):
             future_interaction=False, calculate_social=False, normalization=normalization
         ))
     return agent_list
-
-
-        

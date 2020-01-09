@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-31 15:37:21
+@LastEditTime : 2020-01-09 11:12:14
 @Description: file content
 '''
 import os
@@ -33,21 +33,22 @@ class __Base_Model():
     self.forward_test(self, inputs, gt='null', agents_test='null'). # model result in test steps
     ```
     """
-    def __init__(self, agents, args):
+    def __init__(self, train_info, args):
         self.args = args
-        self.agents = agents
+        self.train_info = train_info
         
     def run_commands(self):
         self.initial_dataset()
 
         if self.args.load == 'null':
             self.model, self.optimizer = self.create_model()
-            self.train(self.agents_train, self.agents_test)
+            self.train()
         else:
             self.load_data_and_model()
-            if self.args.test:
-                self.agents_test = self.test(self.agents_test)
-                self.draw_pred_results(self.agents_test)
+        
+        if self.args.test:
+            self.agents_test = self.test(self.agents_test)
+            self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
         self.obs_frames = self.args.obs_frames
@@ -58,25 +59,18 @@ class __Base_Model():
         if not self.args.load == 'null':
             return
 
-        self.sample_number = len(self.agents)
-        self.sample_time = (1 + self.args.reverse) * (1 + self.args.add_noise)
-        self.sample_number_original = int(self.sample_number/self.sample_time) 
-
-        index = set([i for i in range(self.sample_number_original)])
-        train_index = random.sample(index, int(self.sample_number_original * self.args.train_percent))
-        test_index = list(index - set(train_index))
-        
-        self.agents_train = [self.agents[(more_sample + 1) * index] for more_sample in range(self.sample_time) for index in train_index]
-        self.train_index = [(more_sample + 1) * index for more_sample in range(self.sample_time) for index in train_index]
-        
-        self.agents_test = [self.agents[index] for index in test_index]
-        self.test_index = test_index
+        self.agents_train = self.train_info['train_agents']
+        self.train_index = self.train_info['train_index']
+        self.agents_test = self.train_info['test_agents']
+        self.test_index = self.train_info['test_index']
+        self.train_number = self.train_info['train_number']
+        self.sample_time = self.train_info['sample_time'] 
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
         self.model = keras.models.load_model(base_path.format('.h5'))
         self.agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
-        self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
+        # self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
         self.args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
     
     def create_model(self):
@@ -142,11 +136,8 @@ class __Base_Model():
 
         return model_output, loss_eval, gt, input_agents
     
-    def train(self, agents_train, agents_test):
-        train_agents_number = len(agents_train)
-        test_agents_number = len(agents_test)
-
-        batch_number = int(np.ceil(train_agents_number / self.args.batch_size))
+    def train(self):
+        batch_number = int(np.ceil(self.train_number / self.args.batch_size))
         summary_writer = tf.summary.create_file_writer(self.args.log_dir)
 
         if self.args.reverse:
@@ -154,9 +145,7 @@ class __Base_Model():
         if self.args.add_noise:
             print('Using noise data to train. ({}x)'.format(self.args.add_noise))
         
-        print('original_sample_number = {}, total {}x train samples.'.format(self.sample_number_original, self.sample_time))
-        print('train_sample_number = {}'.format(len(self.train_index)))
-        print('test_sample_number = {}'.format(len(self.test_index)))
+        print('train_number = {}, total {}x train samples.'.format(self.train_number, self.sample_time))
         print('batch_number = {}\nbatch_size = {}'.format(batch_number, self.args.batch_size))
         
         print('Start training:')
@@ -167,8 +156,8 @@ class __Base_Model():
             loss_list = []
             for batch in range(batch_number):
                 batch_start = batch * self.args.batch_size
-                batch_end = tf.minimum((batch + 1) * self.args.batch_size, train_agents_number)
-                agents_current = agents_train[batch_start : batch_end]
+                batch_end = tf.minimum((batch + 1) * self.args.batch_size, self.train_number)
+                agents_current = self.agents_train[batch_start : batch_end]
                 index_current = self.train_index[batch_start : batch_end]
 
                 with tf.GradientTape() as tape:
@@ -185,7 +174,7 @@ class __Base_Model():
             loss_list = tf.reduce_mean(tf.stack(loss_list), axis=0).numpy()
 
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
-                model_output, loss_eval, _, _ = self.test_step(agents_test)
+                model_output, loss_eval, _, _ = self.test_step(self.agents_test)
                 test_results.append(loss_eval)
 
                 with summary_writer.as_default():
@@ -209,7 +198,7 @@ class __Base_Model():
                 ), flush=True, end='\r')
 
             if epoch == self.args.epochs - 1 and self.args.draw_results == True:
-                self.test(agents_test)
+                self.test(self.agents_test)
 
         print('Training done.')
         latest_epochs = 10
@@ -226,13 +215,12 @@ class __Base_Model():
             self.test_data_save_path = os.path.join(self.args.log_dir, '{}.npy'.format(self.args.model_name + '{}'))
 
             test_data = [
-                agents_test,
-                self.test_index,
+                self.agents_test,
             ]
 
             self.model.save(self.model_save_path)
             np.save(self.test_data_save_path.format('test'), test_data[0])   
-            np.save(self.test_data_save_path.format('index'), test_data[1])
+            # np.save(self.test_data_save_path.format('index'), test_data[1])
             np.save(self.test_data_save_path.format('args'), self.args)
             print('Trained model is saved at "{}"'.format(self.model_save_path.split('.h5')[0]))
     
@@ -259,21 +247,21 @@ class __Base_Model():
         )
 
 
-class FullAttention_LSTM(__Base_Model):
+class LSTM_FC(__Base_Model):
     """
     LSTM based model with full attention layer.
     """
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
 
     def create_model(self):
-        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
-        output1 = keras.layers.Dense(64)(inputs)
-        output2 = keras.layers.LSTM(64)(output1)
-        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2)
+        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions_embadding = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64)(positions_embadding)
+        output3 = keras.layers.Dense(self.args.pred_frames * 16)(traj_feature)
         output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
         output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=inputs, outputs=[output5])
+        lstm = keras.Model(inputs=positions, outputs=[output5])
 
         lstm.build(input_shape=[None, self.args.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
@@ -281,29 +269,78 @@ class FullAttention_LSTM(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class RealFC(__Base_Model):
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
-    
+class SS_LSTM(__Base_Model):
+    """
+    `S`tate and `S`equence `LSTM`
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+
     def create_model(self):
-        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
-        output1 = keras.layers.Dense(64)(inputs)
-        output2 = keras.layers.LSTM(64, return_sequences=True)(output1)
-        output2_reshape = tf.reshape(output2, [-1, self.args.obs_frames * 64])
-        output3 = keras.layers.Dense(self.args.pred_frames * 16)(output2_reshape)
-        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
-        output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=inputs, outputs=[output5])
+        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions_embadding = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding)
+
+        concat_feature = tf.concat([traj_feature, positions_embadding], axis=-1)
+        feature_flatten = tf.reshape(concat_feature, [-1, self.obs_frames * 64 * 2])
+        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
+        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
+        output5 = keras.layers.Dense(2)(feature_reshape)
+        lstm = keras.Model(inputs=positions, outputs=[output5])
 
         lstm.build(input_shape=[None, self.args.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         print(lstm.summary())
         return lstm, lstm_optimizer
+
+
+class LSTMcell(__Base_Model):
+    """
+    Recurrent cell of LSTM
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+        
+    def create_model(self):
+        feature_dim = 64
+        embadding = keras.layers.Dense(feature_dim)
+        cell = keras.layers.LSTMCell(feature_dim)
+        decoder = keras.layers.Dense(2)
+        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+
+        h = tf.transpose(tf.stack([tf.reduce_sum(tf.zeros_like(positions), axis=[1, 2]) for _ in range(feature_dim)]), [1, 0])
+        c = tf.zeros_like(h)
+        
+        state_init = [h, c]
+        for frame in range(self.obs_frames):
+            input_current = positions[:, frame, :]
+            input_current_embadding = embadding(input_current)
+            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
+            output_current = decoder(h_new)
+            [h, c] = [h_new, c_new]
+        
+        all_output = []
+        for frame in range(self.pred_frames):
+            input_current_embadding = embadding(output_current)
+            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
+            output_current = decoder(h_new)
+            [h, c] = [h_new, c_new]
+
+            all_output.append(output_current)
+        
+        output = tf.transpose(tf.stack(all_output), [1, 0, 2])
+
+        lstm = keras.Model(inputs=positions, outputs=[output])
+        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        print(lstm.summary())
+        return lstm, lstm_optimizer
+        
 
 
 class FC_cycle(__Base_Model):
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
 
     def create_model(self):
         embadding = keras.layers.Dense(64)
@@ -354,8 +391,8 @@ class FC_cycle(__Base_Model):
 
 
 class LSTM_Social(__Base_Model):
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
 
     def create_model(self):
         inputs = keras.Input(shape=[self.obs_frames, 2])
@@ -410,8 +447,8 @@ class LSTM_Social(__Base_Model):
 
 
 class LSTM_ED(__Base_Model):
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
         self.fc_size = 16
         self.feature_layer = 3 + 1  # Input is also a layer
         self.output_layer = 6 + 1
@@ -509,8 +546,8 @@ class LSTM_ED(__Base_Model):
 
 
 class Linear(__Base_Model):
-    def __init__(self, agents, args):
-        super().__init__(agents, args)
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
         self.args.batch_size = 1
         self.args.epochs = 1
         self.args.draw_results = False
@@ -667,3 +704,13 @@ def calculate_cosine(p1, p2, absolute=True):
     return result
     
 
+def save_visable_weighits(model, layer_name, if_abs=True, save_path='./test.png'):
+    """This method is only for test"""
+    import cv2
+    weights = model.get_layer(layer_name).get_weights()[0]
+    if if_abs:
+        weights = np.abs(weights)
+    
+    weights_norm = (weights - weights.min())/(weights.max() - weights.min())
+    weights_draw = (255 * weights_norm).astype(np.int)
+    cv2.imwrite(save_path, weights_draw)
