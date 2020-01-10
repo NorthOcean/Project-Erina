@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 20:49:15
+@LastEditTime : 2020-01-09 22:08:00
 @Description: file content
 '''
 import os
@@ -277,7 +277,11 @@ class Prepare_Train_Data():
 
         if self.args.add_noise:
             # print('Preparing data with noise...')
-            current_sample_number = len(agents)
+            if self.args.noise_on_reverse:
+                current_sample_number = len(agents)
+            else:
+                current_sample_number = original_sample_number
+                
             for repeat in tqdm(range(self.args.add_noise), desc='Preparing data with noise'):
                 for index in range(current_sample_number):
                     agents.append(agents[index].add_noise(u=0, sigma=0.1))

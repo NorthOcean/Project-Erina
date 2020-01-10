@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 19:21:53
+@LastEditTime : 2020-01-09 22:06:39
 @Description: file content
 '''
 import argparse
@@ -39,6 +39,7 @@ def get_parser():
     parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
     parser.add_argument('--reverse', type=int, default=True)            # 按时间轴翻转训练数据
     parser.add_argument('--add_noise', type=int, default=False)         # 训练数据添加噪声
+    parser.add_argument('--noise_on_reverse', type=int, default=False)  # 是否在反转后的数据上添加噪声
     parser.add_argument('--normalization', type=int, default=False)
 
     # test settings
