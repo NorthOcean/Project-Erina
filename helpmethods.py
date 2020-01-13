@@ -2,8 +2,8 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
 @LastEditors  : ConghaoWong
-@LastEditTime : 2019-12-27 19:54:43
-@Description: file content
+@LastEditTime : 2020-01-13 10:09:54
+@Description: helpmethods
 '''
 
 import os
@@ -12,6 +12,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.manifold import TSNE
 
+from tqdm import tqdm
 
 def list2array(x):
     return np.array(x)
@@ -219,7 +220,7 @@ def draw_test_results(agents_test, log_dir, loss_function, save=True):
     loss_static = []
     loss_move = []
 
-    for i, agent in enumerate(agents_test):
+    for i, agent in enumerate(tqdm(agents_test)):
         obs = agent.traj_train
         gt = agent.traj_gt
         pred = agent.pred
@@ -238,7 +239,7 @@ def draw_test_results(agents_test, log_dir, loss_function, save=True):
             loss_move.append(loss)
         
         if save:
-            print('Saving fig {}...'.format(i), end='\r')
+            # print('Saving fig {}...'.format(i), end='\r')
             plt.figure()
             plt.plot(pred.T[0], pred.T[1], '-*')
             plt.plot(gt.T[0], gt.T[1], '-o')
@@ -256,7 +257,7 @@ def draw_test_results(agents_test, log_dir, loss_function, save=True):
     loss_static = np.mean(np.stack(loss_static))
     loss_move = np.mean(np.stack(loss_move))
     
-    if save:
-        print('\nSaving done.')
-    print('loss_s = {}, loss_n = {}'.format(loss_static, loss_move))
+    # if save:
+    #     print('\nSaving done.')
+    # print('loss_s = {}, loss_n = {}'.format(loss_static, loss_move))
     

@@ -2,8 +2,8 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 21:28:10
-@Description: file content
+@LastEditTime : 2020-01-13 11:05:32
+@Description: classes and methods of training model
 '''
 import os
 import random
@@ -43,9 +43,11 @@ class __Base_Model():
 
         if self.args.load == 'null':
             self.model, self.optimizer = self.create_model()
+            self.model.summary()
             self.train()
         else:
-            self.load_data_and_model()
+            self.model, self.agents_test, self.args = self.load_data_and_model()
+            self.model.summary()
         
         if self.args.test:
             self.agents_test = self.test(self.agents_test)
@@ -69,10 +71,10 @@ class __Base_Model():
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
-        self.model = keras.models.load_model(base_path.format('.h5'))
-        self.agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
-        # self.test_index = np.load(base_path.format('index.npy'), allow_pickle=True)
-        self.args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
+        model = keras.models.load_model(base_path.format('.h5'))
+        agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
+        args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
+        return model, agents_test, args
     
     def create_model(self):
         raise 'MODEL is not defined!'
@@ -87,12 +89,6 @@ class __Base_Model():
     def loss_eval(self, model_output, gt, obs='null'):
         self.loss_eval_namelist = ['ADE', 'FDE']
         return calculate_ADE(model_output[0], gt).numpy(), calculate_FDE(model_output[0], gt).numpy()
-
-    def create_loss_dict(self, loss, name_list):
-        dic = {}
-        for loss, name in zip(loss, name_list):
-            dic[name] = loss
-        return dic
 
     def forward(self, input_agents):
         """This method is a direct IO"""
@@ -140,19 +136,28 @@ class __Base_Model():
     def train(self):
         batch_number = int(np.ceil(self.train_number / self.args.batch_size))
         summary_writer = tf.summary.create_file_writer(self.args.log_dir)
+        
 
+        print('\n')
+        print('-----------------dataset options-----------------')
         if self.args.reverse:
             print('Using reverse data to train. (2x)')
         if self.args.add_noise:
             print('Using noise data to train. ({}x)'.format(self.args.add_noise))
-        
         print('train_number = {}, total {}x train samples.'.format(self.train_number, self.sample_time))
-        print('batch_number = {}\nbatch_size = {}'.format(batch_number, self.args.batch_size))
+
+        print('-----------------training options-----------------')
+        print('dataset = {},\nbatch_number = {},\nbatch_size = {},\nlr={}'.format(
+            self.args.test_set, 
+            batch_number, 
+            self.args.batch_size,
+            self.args.lr,
+        ))
         
-        print('Start training:')
+        print('\n\nStart Training:')
         test_results = []
         test_loss_dict = dict()
-        test_loss_dict['Oops!'] = 'Unkwon'
+        test_loss_dict['-'] = 0
         for epoch in (time_bar := tqdm(range(self.args.epochs))):
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
@@ -179,36 +184,21 @@ class __Base_Model():
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
                 model_output, loss_eval, _, _ = self.test_step(self.agents_test)
                 test_results.append(loss_eval)
-                test_loss_dict = self.create_loss_dict(loss_eval, self.loss_eval_namelist)
-
-                with summary_writer.as_default():
-                    for (loss, name) in zip(loss_eval, self.loss_eval_namelist):
-                        tf.summary.scalar(name, loss, step=epoch)
+                test_loss_dict = create_loss_dict(loss_eval, self.loss_eval_namelist)
             
-            train_loss_dict = self.create_loss_dict(loss_list, self.loss_namelist)
-            show_dict = dict(train_loss_dict, **test_loss_dict)
-            time_bar.set_postfix(show_dict)
+            train_loss_dict = create_loss_dict(loss_list, self.loss_namelist)
+            loss_dict = dict(train_loss_dict, **test_loss_dict) # 拼接字典
+            time_bar.set_postfix(loss_dict)
 
-            #     print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}, test_loss={}'.format(
-            #         epoch + 1, 
-            #         self.args.epochs, 
-            #         ADE/batch_number, 
-            #         self.create_loss_dict(loss_list, self.loss_namelist),
-            #         self.create_loss_dict(loss_eval, self.loss_eval_namelist)
-            #     ), flush=True, end='\r')
-            
-            # else:
-            #     print('epoch {}/{}, train_loss_total={:.5f}, train_loss={}'.format(
-            #         epoch + 1, 
-            #         self.args.epochs, 
-            #         ADE/batch_number,
-            #         self.create_loss_dict(loss_list, self.loss_namelist)
-            #     ), flush=True, end='\r')
-
-            # if epoch == self.args.epochs - 1 and self.args.draw_results == True:
-            #     self.test(self.agents_test)
+            with summary_writer.as_default():
+                for loss_name in loss_dict:
+                    value = loss_dict[loss_name]
+                    tf.summary.scalar(loss_name, value, step=epoch)
 
         print('Training done.')
+        print('Tensorboard training log file is saved at "{}"'.format(self.args.log_dir))
+        print('To open this log file, please use "tensorboard --logdir {} --port 54393"'.format(self.args.log_dir))
+        
         latest_epochs = 10
         test_results = list2array(test_results)
         latest_results = np.mean(test_results[-latest_epochs-1:-1, :], axis=0)
@@ -221,16 +211,11 @@ class __Base_Model():
         if self.args.save_model:
             self.model_save_path = os.path.join(self.args.log_dir, '{}.h5'.format(self.args.model_name))
             self.test_data_save_path = os.path.join(self.args.log_dir, '{}.npy'.format(self.args.model_name + '{}'))
-
-            test_data = [
-                self.agents_test,
-            ]
-
             self.model.save(self.model_save_path)
-            np.save(self.test_data_save_path.format('test'), test_data[0])   
-            # np.save(self.test_data_save_path.format('index'), test_data[1])
+            np.save(self.test_data_save_path.format('test'), self.agents_test)   
             np.save(self.test_data_save_path.format('args'), self.args)
-            print('Trained model is saved at "{}"'.format(self.model_save_path.split('.h5')[0]))
+            print('Trained model is saved at "{}".'.format(self.model_save_path.split('.h5')[0]))
+            print('To re-test this model, please use "python main.py --load {}".'.format(self.model_save_path.split('.h5')[0]))
     
     def test(self, agents_test):
         test_agents_number = len(agents_test)
@@ -240,13 +225,14 @@ class __Base_Model():
         for i in range(len(agents_test)):
             agents_test[i].pred = pred_traj[i]
 
-        print('test_loss={}'.format(self.create_loss_dict(loss_eval, self.loss_eval_namelist)))
+        print('test_loss={}'.format(create_loss_dict(loss_eval, self.loss_eval_namelist)))
         for loss in loss_eval:
             print(loss, end='\t')
         print('\nTest done.')
         return agents_test
 
     def draw_pred_results(self, agents):
+        print('\n\nSaving Results:')
         draw_test_results(
             agents, 
             self.log_dir, 
@@ -263,17 +249,17 @@ class LSTM_FC(__Base_Model):
         super().__init__(train_info, args)
 
     def create_model(self):
-        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
         positions_embadding = keras.layers.Dense(64)(positions)
         traj_feature = keras.layers.LSTM(64)(positions_embadding)
-        output3 = keras.layers.Dense(self.args.pred_frames * 16)(traj_feature)
-        output4 = keras.layers.Reshape([self.args.pred_frames, 16])(output3)
+        output3 = keras.layers.Dense(self.pred_frames * 16)(traj_feature)
+        output4 = keras.layers.Reshape([self.pred_frames, 16])(output3)
         output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=positions, outputs=[output5])
+        lstm = keras.Model(inputs=positions, outputs=[output5], name='LSTM_FC')
 
-        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, lstm_optimizer
 
 
@@ -282,18 +268,18 @@ class LSTM_FC_develop_beta(__Base_Model):
         super().__init__(train_info, args)
 
     def create_model(self):
-        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
         positions_embadding = keras.layers.Dense(64)(positions)
         traj_feature = keras.layers.LSTM(64)(positions_embadding)
         concat_feature = tf.concat([traj_feature, positions_embadding[:, -1, :]], axis=-1)
-        output3 = keras.layers.Dense(self.args.pred_frames * 32)(concat_feature)
-        output4 = keras.layers.Reshape([self.args.pred_frames, 32])(output3)
+        output3 = keras.layers.Dense(self.pred_frames * 32)(concat_feature)
+        output4 = keras.layers.Reshape([self.pred_frames, 32])(output3)
         output5 = keras.layers.Dense(2)(output4)
         lstm = keras.Model(inputs=positions, outputs=[output5])
 
-        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, lstm_optimizer
 
 
@@ -305,7 +291,7 @@ class SS_LSTM(__Base_Model):
         super().__init__(train_info, args)
 
     def create_model(self):
-        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
         positions_embadding = keras.layers.Dense(64)(positions)
         traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding)
 
@@ -316,9 +302,9 @@ class SS_LSTM(__Base_Model):
         output5 = keras.layers.Dense(2)(feature_reshape)
         lstm = keras.Model(inputs=positions, outputs=[output5])
 
-        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, lstm_optimizer
 
 
@@ -334,7 +320,7 @@ class LSTMcell(__Base_Model):
         embadding = keras.layers.Dense(feature_dim)
         cell = keras.layers.LSTMCell(feature_dim)
         decoder = keras.layers.Dense(2)
-        positions = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
 
         h = tf.transpose(tf.stack([tf.reduce_sum(tf.zeros_like(positions), axis=[1, 2]) for _ in range(feature_dim)]), [1, 0])
         c = tf.zeros_like(h)
@@ -359,9 +345,9 @@ class LSTMcell(__Base_Model):
         output = tf.transpose(tf.stack(all_output), [1, 0, 2])
 
         lstm = keras.Model(inputs=positions, outputs=[output])
-        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, lstm_optimizer
         
 
@@ -373,28 +359,28 @@ class FC_cycle(__Base_Model):
     def create_model(self):
         embadding = keras.layers.Dense(64)
         LSTM = keras.layers.LSTM(64)
-        MLP = keras.layers.Dense(self.args.pred_frames * 2*self.args.obs_frames)
+        MLP = keras.layers.Dense(self.pred_frames * 2*self.obs_frames)
 
-        inputs = keras.layers.Input(shape=[self.args.obs_frames, 2])
+        inputs = keras.layers.Input(shape=[self.obs_frames, 2])
         output1 = embadding(inputs)
         output2 = LSTM(output1)
         output3 = MLP(output2)
-        output4 = keras.layers.Reshape([self.args.pred_frames, 2*self.args.obs_frames])(output3)
+        output4 = keras.layers.Reshape([self.pred_frames, 2*self.obs_frames])(output3)
         output5 = keras.layers.Dense(2)(output4)    #shape=[batch, 12, 2]
 
         output5_reverse = tf.reverse(output5, axis=[1])
         output6 = embadding(output5_reverse)
         output7 = LSTM(output6)  # shape=[12, 64]
         output8 = MLP(output7)
-        output9 = keras.layers.Reshape([self.args.obs_frames, 2*self.args.pred_frames])(output8)
+        output9 = keras.layers.Reshape([self.obs_frames, 2*self.pred_frames])(output8)
         rebuild = keras.layers.Dense(2)(output9)
         rebuild_reverse = tf.reverse(rebuild, [1])
         
         lstm = keras.Model(inputs=inputs, outputs=[output5, rebuild_reverse])
 
-        lstm.build(input_shape=[None, self.args.obs_frames, 2])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, lstm_optimizer
 
     def loss(self, model_output, gt, obs='null'):
@@ -430,14 +416,14 @@ class LSTM_Social(__Base_Model):
         social_features = keras.Input(shape=[64])
         concat_features = tf.concat([lstm_features, social_features], axis=1)
 
-        fc_features = keras.layers.Dense(self.args.pred_frames * 16)(concat_features)
-        fc_features_reshape = keras.layers.Reshape([self.args.pred_frames, 16])(fc_features)
+        fc_features = keras.layers.Dense(self.pred_frames * 16)(concat_features)
+        fc_features_reshape = keras.layers.Reshape([self.pred_frames, 16])(fc_features)
 
         outputs = keras.layers.Dense(2)(fc_features_reshape)
         lstm = keras.Model(inputs=[inputs, social_features], outputs=[outputs])
         lstm.build(input_shape=[[None, self.obs_frames, 2], [None, 64]])
         optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(lstm.summary())
+        
         return lstm, optimizer
 
     def feature_extractor(self, inputs):
@@ -507,7 +493,7 @@ class LSTM_ED(__Base_Model):
 
         test_results = []
         for re in range(self.args.k):
-            print('Repeat step {}/{}...\t'.format(re, self.args.k), end='\r')
+            # print('Repeat step {}/{}...\t'.format(re, self.args.k), end='\r')
             noise = np.random.normal(self.noise_mean, self.noise_sigma, size=[batch, self.pred_frames * self.fc_size])
             features = get_model_outputs(self.model, inputs_test, input_layer=0, output_layer=self.feature_layer)
             position_output = get_model_outputs(self.model, features + noise, input_layer=self.feature_layer+1, output_layer=self.output_layer)
@@ -648,6 +634,10 @@ def draw_one_traj(traj, GT, save_path):
 
     plt.savefig(save_path)
     plt.close()
+
+
+def create_loss_dict(loss, name_list):
+        return dict(zip(name_list, loss))
 
 
 def softmax(x):

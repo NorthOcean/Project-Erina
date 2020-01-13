@@ -2,8 +2,8 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 22:06:39
-@Description: file content
+@LastEditTime : 2020-01-13 09:45:23
+@Description: main of Erina
 '''
 import argparse
 import os
