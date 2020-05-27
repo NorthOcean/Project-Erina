@@ -4,6 +4,7 @@ logs
 vis_backround_image
 .vscode
 vislogs
+*.npy
 
 __pycache__
 .DS_Store

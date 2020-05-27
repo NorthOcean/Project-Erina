@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
-@LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-13 11:05:32
+@LastEditors: Conghao Wong
+@LastEditTime: 2020-05-27 12:04:19
 @Description: classes and methods of training model
 '''
 import os
@@ -62,9 +62,9 @@ class __Base_Model():
         if not self.args.load == 'null':
             return
 
-        self.agents_train = self.train_info['train_agents']
+        self.agents_train = self.train_info['train_data']
         self.train_index = self.train_info['train_index']
-        self.agents_test = self.train_info['test_agents']
+        self.agents_test = self.train_info['test_data']
         self.test_index = self.train_info['test_index']
         self.train_number = self.train_info['train_number']
         self.sample_time = self.train_info['sample_time'] 
@@ -92,7 +92,7 @@ class __Base_Model():
 
     def forward(self, input_agents):
         """This method is a direct IO"""
-        model_inputs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
+        model_inputs = tf.cast(tf.stack([agent.get_train_traj() for agent in input_agents]), tf.float32)
         outputs = self.model(model_inputs)
         if not type(outputs) == list:
             outputs = [outputs]
@@ -110,8 +110,12 @@ class __Base_Model():
         return output
 
     def __forward_train(self, input_agents):
-        input_trajs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
-        gt = tf.cast(tf.stack([agent.traj_gt for agent in input_agents]), tf.float32)
+        input_trajs = tf.cast(tf.stack(
+            [traj for agent in input_agents for traj in agent.get_train_traj()]
+        ), tf.float32)
+        gt = tf.cast(tf.stack(
+            [traj for agent in input_agents for traj in agent.get_gt_traj()]
+        ), tf.float32)
         return self.forward_train(input_trajs, input_agents), gt, input_trajs
 
     def forward_test(self, inputs, gt='null', agents_test='null'):
@@ -121,15 +125,31 @@ class __Base_Model():
         return output
 
     def __forward_test(self, input_agents):
-        input_trajs = tf.cast(tf.stack([agent.traj_train for agent in input_agents]), tf.float32)
-        gt = tf.cast(tf.stack([agent.traj_gt for agent in input_agents]), tf.float32)
-        return self.forward_test(input_trajs, gt, input_agents), gt, input_trajs
+        input_trajs = []
+        gt = []
+        test_index = []
+        for index, agent in enumerate(input_agents):
+            train_current = agent.get_train_traj()
+            gt_current = agent.get_gt_traj()
+            for train, g in zip(train_current, gt_current):
+                input_trajs.append(train)
+                gt.append(g)
+                test_index.append(index)
+
+        
+        input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
+        gt = tf.cast(tf.stack(gt), tf.float32)
+        return self.forward_test(input_trajs, gt, input_agents), gt, input_trajs, test_index
 
     def test_step(self, input_agents):
-        model_output, gt, obs = self.__forward_test(input_agents)
+        model_output, gt, obs, test_index = self.__forward_test(input_agents)
         loss_eval = self.loss_eval(model_output, gt, obs=obs)
+        
+        for i, agent in enumerate(input_agents):
+            input_agents[i].clear_pred()
+            
         for i, output_curr in enumerate(model_output[0]):
-            input_agents[i].pred = output_curr.numpy()
+            input_agents[test_index[i]].write_pred(output_curr.numpy())
 
         return model_output, loss_eval, gt, input_agents
     
@@ -222,8 +242,8 @@ class __Base_Model():
         print('Start test:')    
         model_output, loss_eval, gt_test, agents_test = self.test_step(agents_test)
         pred_traj = model_output[0].numpy()
-        for i in range(len(agents_test)):
-            agents_test[i].pred = pred_traj[i]
+        # for i in range(len(agents_test)):
+        #     agents_test[i].pred = pred_traj[i]
 
         print('test_loss={}'.format(create_loss_dict(loss_eval, self.loss_eval_namelist)))
         for loss in loss_eval:
@@ -401,63 +421,6 @@ class FC_cycle(__Base_Model):
         loss_rebuild = calculate_ADE(rebuild, obs).numpy()
 
         return loss_ADE, loss_FDE, loss_rebuild
-
-
-
-class LSTM_Social(__Base_Model):
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        inputs = keras.Input(shape=[self.obs_frames, 2])
-        inputs_embadding = keras.layers.Dense(64, name='embadding')(inputs)
-        lstm_features = keras.layers.LSTM(64, name='lstm')(inputs_embadding)
-
-        social_features = keras.Input(shape=[64])
-        concat_features = tf.concat([lstm_features, social_features], axis=1)
-
-        fc_features = keras.layers.Dense(self.pred_frames * 16)(concat_features)
-        fc_features_reshape = keras.layers.Reshape([self.pred_frames, 16])(fc_features)
-
-        outputs = keras.layers.Dense(2)(fc_features_reshape)
-        lstm = keras.Model(inputs=[inputs, social_features], outputs=[outputs])
-        lstm.build(input_shape=[[None, self.obs_frames, 2], [None, 64]])
-        optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, optimizer
-
-    def feature_extractor(self, inputs):
-        layer_name_list = ['embadding', 'lstm']
-        for layer in layer_name_list:
-            layer_current = self.model.get_layer(layer)
-            output = layer_current(inputs)
-            inputs = output
-        
-        return output
-    
-    def forward_train(self, inputs, agents):
-        batch = len(inputs)
-        social_features = []
-
-        for agents_curr in agents:
-            neighbor_list_curr = agents_curr.neighbor_list_current
-            social_trajs = []
-            for neighbor_curr in agents_curr.neighbor_agent:
-                if self.args.future_interaction:
-                    traj_curr = neighbor_curr.traj_pred
-                else:
-                    traj_curr = neighbor_curr.traj_train
-                social_trajs.append(traj_curr)
-
-            social_features_curr = self.feature_extractor(tf.stack(social_trajs))
-            social_features.append(tf.reduce_max(social_features_curr, axis=0))
-        
-        social_features = tf.stack(social_features)
-        positions = self.model([inputs, social_features])
-        return positions
-
-    def forward_test(self, inputs, gt, agents):
-        return self.forward_train(inputs, agents)
 
 
 class LSTM_ED(__Base_Model):

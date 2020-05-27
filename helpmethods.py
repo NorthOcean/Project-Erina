@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
-@LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-13 10:09:54
+@LastEditors: Conghao Wong
+@LastEditTime: 2020-05-27 12:58:14
 @Description: helpmethods
 '''
 
@@ -220,42 +220,43 @@ def draw_test_results(agents_test, log_dir, loss_function, save=True):
     loss_static = []
     loss_move = []
 
-    for i, agent in enumerate(tqdm(agents_test)):
-        obs = agent.traj_train
-        gt = agent.traj_gt
-        pred = agent.pred
+    for index, agent in enumerate(tqdm(agents_test)):
+        obs = agent.get_train_traj()
+        gt = agent.get_gt_traj()
+        pred = agent.get_pred_traj()
 
-        if len(pred.shape) == 3:
-            pred_mean = np.mean(agent.pred, axis=0)
-        else:
-            pred_mean = pred
+        # if len(pred.shape) == 3:
+        #     pred_mean = np.mean(agent.pred, axis=0)
+        # else:
+        #     pred_mean = pred
 
-        loss = loss_function(pred_mean, gt)
-        if np.linalg.norm(obs[0] - gt[-1]) <= 1.0:
-            state = 's'
-            loss_static.append(loss)
-        else:
-            state = 'n'
-            loss_move.append(loss)
+        # loss = loss_function(pred_mean, gt)
+        # if np.linalg.norm(obs[0] - gt[-1]) <= 1.0:
+        #     state = 's'
+        #     loss_static.append(loss)
+        # else:
+        #     state = 'n'
+        #     loss_move.append(loss)
         
         if save:
             # print('Saving fig {}...'.format(i), end='\r')
-            plt.figure()
-            plt.plot(pred.T[0], pred.T[1], '-*')
-            plt.plot(gt.T[0], gt.T[1], '-o')
-            plt.plot(obs.T[0], obs.T[1], '-o')
+            plt.figure(figsize=(20, 20))
+            for i in range(len(obs)):
+                plt.plot(pred[i].T[0], pred[i].T[1], '-*')
+                plt.plot(gt[i].T[0], gt[i].T[1], '-o')
+                plt.plot(obs[i].T[0], obs[i].T[1], '-o')
         
             plt.axis('scaled')
-            plt.title('ADE={:.2f}, frame=[{}, {}]'.format(
-                loss,
+            plt.title('ADE={}, frame=[{}, {}]'.format(
+                loss_function(pred, gt),
                 agent.start_frame,
                 agent.end_frame,
             ))
-            plt.savefig(save_format.format(state, i))
+            plt.savefig(save_format.format('f', index))
             plt.close()
     
-    loss_static = np.mean(np.stack(loss_static))
-    loss_move = np.mean(np.stack(loss_move))
+    # loss_static = np.mean(np.stack(loss_static))
+    # loss_move = np.mean(np.stack(loss_move))
     
     # if save:
     #     print('\nSaving done.')
