@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
-@LastEditors  : ConghaoWong
-@LastEditTime : 2020-01-09 22:08:00
+@LastEditors: Conghao Wong
+@LastEditTime: 2020-05-27 09:09:23
 @Description: file content
 '''
 import os
@@ -87,6 +87,8 @@ class Prepare_Train_Data():
             test_index = [i for i in range(len(test_agents))]
         
         train_info = dict()
+        train_info['all_agents'] = agents
+        train_info['all_index'] = [i for i in range(sample_number_original)]
         train_info['train_agents'] = train_agents
         train_info['train_index'] = train_index
         train_info['test_agents'] = test_agents
@@ -97,6 +99,10 @@ class Prepare_Train_Data():
         return train_info
 
     def data_loader(self, dataset_index):
+        """
+        从原始csv文件中读取数据
+            return: person_data, frame_data
+        """
         # dataset_index = self.args.test_set
         dataset_dir = [
             './data/eth/univ',
@@ -146,6 +152,10 @@ class Prepare_Train_Data():
         return person_data, frame_data
 
     def get_agents_from_dataset(self, dataset):
+        """
+        使用数据计算social关系，并组织为`Agent`类
+            return: agents, original_sample_number
+        """
         base_path = dir_check(os.path.join('./dataset_npz/', '{}'.format(dataset)))
         npy_path = self.npy_file_base_path.format(dataset)
 
@@ -161,11 +171,14 @@ class Prepare_Train_Data():
                 save_path=npy_path
             )
     
-        agents, original_sample_number = self.get_agents(video_neighbor_list, video_social_matrix, video_matrix)
+        agents, original_sample_number, self.all_agents = self.get_agents(video_neighbor_list, video_social_matrix, video_matrix)
         print('\nPrepare agent data in dataset {} done.'.format(dataset))
         return agents, original_sample_number
         
     def load_video_matrix(self, dataset):
+        """
+        从保存的文件中读取social matrix和social neighbor
+        """
         print('Load data from "{}"...'.format(self.npy_file_base_path.format(dataset)))
         all_data = np.load(self.npy_file_base_path.format(dataset), allow_pickle=True)
         video_neighbor_list = all_data['video_neighbor_list']
@@ -174,6 +187,9 @@ class Prepare_Train_Data():
         return video_neighbor_list, video_social_matrix, video_matrix
 
     def create_video_matrix(self, person_data, frame_data, save_path='null'):
+        """
+        计算social matrix和social neighbor
+        """
         person_list = np.sort(np.stack([float(person) for person in person_data])).astype(np.str)
         frame_list = np.sort(np.stack([float(frame) for frame in frame_data])).astype(np.str)
 
@@ -228,6 +244,10 @@ class Prepare_Train_Data():
         return video_neighbor_list, video_social_matrix, video_matrix
     
     def get_agents(self, video_neighbor_list, video_social_matrix, video_matrix):
+        """
+        使用social matrix计算每个人的`Agent`类，并取样得到用于训练的`Agent_part`类数据
+            return: agents(取样后, type=`Agent_part`), original_sample_number, all_agents(type=`Agent`)
+        """
         frame_number, person_number, _ = video_matrix.shape
         all_agents = []
         agents = []
@@ -286,7 +306,7 @@ class Prepare_Train_Data():
                 for index in range(current_sample_number):
                     agents.append(agents[index].add_noise(u=0, sigma=0.1))
         
-        return agents, original_sample_number
+        return agents, original_sample_number, all_agents
 
 
 class Agent_Part():
