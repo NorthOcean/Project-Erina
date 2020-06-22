@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-06-01 18:54:46
+@LastEditTime: 2020-06-01 21:33:23
 @Description: file content
 '''
 
@@ -33,9 +33,10 @@ def get_parser():
     parser.add_argument('--gird_shape_x', type=int, default=700)
     parser.add_argument('--gird_shape_y', type=int, default=700)
     parser.add_argument('--gird_length', type=float, default=0.1)   # 网格的真实长度
-    parser.add_argument('--avoid_size', type=int, default=4)   # 主动避让的半径网格尺寸
+    parser.add_argument('--avoid_size', type=int, default=10)   # 主动避让的半径网格尺寸
     parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
     parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
+    parser.add_argument('--max_refine', type=float, default=1.0)   # 最大修正尺寸
 
     parser.add_argument('--savefig', type=int, default=True)
 
@@ -51,9 +52,16 @@ class GirdMap():
         self.person_number = frame_data.vaild_person_number
         self.person_list = frame_data.vaild_person_index
 
+        self.add_mask = np.zeros([101, 101])
+        for i in range(101):
+            for j in range(101):
+                self.add_mask[i, j] = ((i-50)**2 + (j-50)**2)**0.5
+        
+        self.add_mask = np.zeros([101, 101]) * (self.add_mask > 50) + (50 - self.add_mask) * (self.add_mask <= 50)
+
         self.gird_map = []       
         for index in range(self.person_number):
-            self.gird_map.append(self.create_gird_map(index, self.person_number, save=False))
+            self.gird_map.append(self.create_gird_map(index, self.person_number, save=True))
         # print('!')
     
     def __calculate_gird(self, input_coor):
@@ -72,15 +80,37 @@ class GirdMap():
         gird_coor_list = self.real2gird(pred_current)
 
         other_person_list = [i for i in range(person_number) if not i == current_person_index]
+
+        avoid_person_list = []
+        avoid_person_cosine = []
+        interest_person_list = []
+        interest_person_cosine = []
+        for other_person_index in other_person_list:
+            pred = self.pred_original[other_person_index]
+            cosine = calculate_cosine(pred_current[-1] - pred_current[0], pred[-1] - pred[0])
+            if cosine >= 0:
+                interest_person_list.append(other_person_index)
+                interest_person_cosine.append(cosine)
+            else:
+                avoid_person_list.append(other_person_index)
+                avoid_person_cosine.append(cosine)
+        
+        mask = np.stack([(self.args.pred_frames-i)/self.args.pred_frames for i in range(self.args.pred_frames)]).reshape([-1, 1])
+        
+        mmap = self.add_to_gird(
+            gird_coor_list, 
+            mmap,
+            coe=-1 * np.ones_like(mask),
+            add_size=self.args.avoid_size,
+        )
         
         for other_person_index in other_person_list:
             pred = self.pred_original[other_person_index]
             coor = self.real2gird(pred)
-            mask = np.stack([(self.args.pred_frames-i)/self.args.pred_frames for i in range(self.args.pred_frames)]).reshape([-1, 1])
             mmap = self.add_to_gird(
                 coor, 
                 mmap,
-                coe=mask * calculate_length(pred[-1] - pred[0]) * np.maximum(-1.0 * calculate_cosine(
+                coe=mask * np.maximum(-1.0 * calculate_cosine(
                     pred_current[-1] - pred_current[0], 
                     pred[-1] - pred[0]
                 ), 0),
@@ -89,7 +119,7 @@ class GirdMap():
             # mmap = self.add_to_gird(
             #     coor, 
             #     mmap,
-            #     coe=mask * calculate_length(pred[-1] - pred[0]) * np.maximum(calculate_cosine(
+            #     coe=mask * np.maximum(calculate_cosine(
             #         pred_current[-1] - pred_current[0], 
             #         pred[-1] - pred[0]
             #     ), 0),
@@ -106,7 +136,8 @@ class GirdMap():
             )
         return mmap_smooth
     
-    def add_to_gird(self, coor_list, girdmap, coe=1, add_size=1, interp=True):
+    def add_to_gird(self, coor_list, girdmap, coe=1, add_size=1, interp=True, replace=True):
+        mask = cv2.resize(self.add_mask, (2*add_size, 2*add_size))
         girdmap_c = girdmap.copy()
         coor_list_new = []  # 删除重复项目
         for coor in coor_list:
@@ -133,14 +164,19 @@ class GirdMap():
                     
 
         for coor, coe_c in zip(coor_list_new, coe):
-            girdmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size] += coe_c
+            girdmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size] = coe_c*mask + girdmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size]
         return girdmap_c
 
     def smooth_gird(self, girdmap):
-        return signal.convolve2d(girdmap, self.kernel, 'same')
+        # return signal.convolve2d(girdmap, self.kernel, 'same')
+        return girdmap
 
     def refine_model(self, input_traj, gird_map, epochs=30):
         prev_result = input_traj
+        
+        if calculate_length(prev_result[-1] - prev_result[1]) <= 1.0:
+            return prev_result
+            
         for epoch in range(epochs):
             result = prev_result
             input_traj_gird = (self.real2gird(result) + 1.0).astype(np.int)
@@ -151,21 +187,21 @@ class GirdMap():
             dx_current = diff_x[input_traj_gird.T[0], input_traj_gird.T[1]]
             dy_current = diff_y[input_traj_gird.T[0], input_traj_gird.T[1]]
 
-            x_bias = dx_current * 0.01
-            y_bias = dy_current * 0.01
+            x_bias = dx_current * 0.001
+            y_bias = dy_current * 0.001
 
             prev_result = np.stack([
                 result.T[0] - x_bias,
                 result.T[1] - y_bias,
             ]).T
 
-        delta = prev_result - input_traj
+        delta = np.maximum(prev_result - input_traj, self.args.max_refine)
         coe = 0.8*np.stack([i/(self.args.pred_frames-1) for i in range(self.args.pred_frames)]).reshape([-1, 1])
     
         # print('!')
         # np.savetxt('res.txt', prev_result)
         # np.savetxt('inp.txt', input_traj)
-        return input_traj + 1.0 * delta
+        return input_traj + coe * delta
 
         
 
@@ -194,8 +230,8 @@ if __name__ == "__main__":
     savefig = args.savefig
     
     ade_gain = []
-    timebar = tqdm(range(len(frame_data)))
-    # timebar = tqdm(range(13, 14))
+    # timebar = tqdm(range(len(frame_data)))
+    timebar = tqdm(range(13, 14))
     for frame_index, frame in enumerate(timebar):
         a = GirdMap(args, frame_data[frame])
 
