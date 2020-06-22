@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-05-27 12:04:19
+@LastEditTime: 2020-06-22 13:12:40
 @Description: classes and methods of training model
 '''
 import os
@@ -257,7 +257,8 @@ class __Base_Model():
             agents, 
             self.log_dir, 
             loss_function=calculate_ADE_single, 
-            save=self.args.draw_results
+            save=self.args.draw_results,
+            train_base=self.args.train_base,
         )
 
 
@@ -281,6 +282,43 @@ class LSTM_FC(__Base_Model):
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         
         return lstm, lstm_optimizer
+
+
+class LSTM_FC_hardATT(__Base_Model):
+    """
+    LSTM based model with full attention layer.
+    """
+    def __init__(self, train_info, args):
+        self.frame_index = tf.constant(args.frame)
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use 4 frames of input
+        positions_embadding = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64)(positions_embadding)
+        output3 = keras.layers.Dense(self.pred_frames * 16)(traj_feature)
+        output4 = keras.layers.Reshape([self.pred_frames, 16])(output3)
+        output5 = keras.layers.Dense(2)(output4)
+        lstm = keras.Model(inputs=positions, outputs=[output5], name='LSTM_FC')
+
+        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
+
+    def forward_train(self, inputs, agents_train='null'):
+        inputs = tf.gather(inputs, self.frame_index, axis=1)
+        output = self.model(inputs)
+        if not type(output) == list:
+            output = [output]
+        return output
+
+    def forward_test(self, inputs, gt='null', agents_test='null'):
+        inputs = tf.gather(inputs, self.frame_index, axis=1)
+        output = self.model(inputs)
+        if not type(output) == list:
+            output = [output]
+        return output
 
 
 class LSTM_FC_develop_beta(__Base_Model):

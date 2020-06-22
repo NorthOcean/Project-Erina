@@ -2,11 +2,13 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-05-27 12:17:50
+@LastEditTime: 2020-06-22 12:55:59
 @Description: file content
 '''
 import os
 import random
+USE_SEED = True
+SEED = 10
 
 import numpy as np
 from tqdm import tqdm
@@ -50,6 +52,8 @@ class Prepare_Train_Data():
         sample_time = int(sample_number_total / sample_number_original)
 
         index = set([i for i in range(sample_number_original)])
+        if USE_SEED:
+            random.seed(SEED)
         train_index = random.sample(index, int(sample_number_original * self.args.train_percent))
         test_index = list(index - set(train_index))
         

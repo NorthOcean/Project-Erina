@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-05-27 12:58:14
+@LastEditTime: 2020-06-22 12:33:08
 @Description: helpmethods
 '''
 
@@ -212,7 +212,7 @@ def draw_results(feature, result, all_traj='null', detail_save_path='null', whol
         plt.close()
 
 
-def draw_test_results(agents_test, log_dir, loss_function, save=True):
+def draw_test_results(agents_test, log_dir, loss_function, save=True, train_base='agent'):
     if save:
         save_base_dir = dir_check(os.path.join(log_dir, 'test_figs/'))
         save_format = os.path.join(save_base_dir, '{}-pic{}.png')
@@ -240,15 +240,21 @@ def draw_test_results(agents_test, log_dir, loss_function, save=True):
         
         if save:
             # print('Saving fig {}...'.format(i), end='\r')
-            plt.figure(figsize=(20, 20))
+            # plt.figure(figsize=(20, 20))
             for i in range(len(obs)):
                 plt.plot(pred[i].T[0], pred[i].T[1], '-*')
                 plt.plot(gt[i].T[0], gt[i].T[1], '-o')
                 plt.plot(obs[i].T[0], obs[i].T[1], '-o')
         
             plt.axis('scaled')
+
+            if train_base == 'agent':
+                ade = loss_function(pred[0], gt[0])
+            elif train_base == 'frame':
+                ade = loss_function(pred, gt)
+
             plt.title('ADE={}, frame=[{}, {}]'.format(
-                loss_function(pred, gt),
+                ade,
                 agent.start_frame,
                 agent.end_frame,
             ))
