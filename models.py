@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-06-22 13:12:40
+@LastEditTime: 2020-06-29 16:47:33
 @Description: classes and methods of training model
 '''
 import os
@@ -21,7 +21,7 @@ from helpmethods import(
     draw_test_results,
 )
 
-class __Base_Model():
+class Base_Model():
     """
     Base model for prediction.
 
@@ -262,7 +262,7 @@ class __Base_Model():
         )
 
 
-class LSTM_FC(__Base_Model):
+class LSTM_FC(Base_Model):
     """
     LSTM based model with full attention layer.
     """
@@ -284,7 +284,7 @@ class LSTM_FC(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class LSTM_FC_hardATT(__Base_Model):
+class LSTM_FC_hardATT(Base_Model):
     """
     LSTM based model with full attention layer.
     """
@@ -321,7 +321,7 @@ class LSTM_FC_hardATT(__Base_Model):
         return output
 
 
-class LSTM_FC_develop_beta(__Base_Model):
+class LSTM_FC_develop_beta(Base_Model):
     def __init__(self, train_info, args):
         super().__init__(train_info, args)
 
@@ -341,7 +341,7 @@ class LSTM_FC_develop_beta(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class SS_LSTM(__Base_Model):
+class SS_LSTM(Base_Model):
     """
     `S`tate and `S`equence `LSTM`
     """
@@ -366,7 +366,7 @@ class SS_LSTM(__Base_Model):
         return lstm, lstm_optimizer
 
 
-class LSTMcell(__Base_Model):
+class LSTMcell(Base_Model):
     """
     Recurrent cell of LSTM
     """
@@ -407,61 +407,9 @@ class LSTMcell(__Base_Model):
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         
         return lstm, lstm_optimizer
-        
 
 
-class FC_cycle(__Base_Model):
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        embadding = keras.layers.Dense(64)
-        LSTM = keras.layers.LSTM(64)
-        MLP = keras.layers.Dense(self.pred_frames * 2*self.obs_frames)
-
-        inputs = keras.layers.Input(shape=[self.obs_frames, 2])
-        output1 = embadding(inputs)
-        output2 = LSTM(output1)
-        output3 = MLP(output2)
-        output4 = keras.layers.Reshape([self.pred_frames, 2*self.obs_frames])(output3)
-        output5 = keras.layers.Dense(2)(output4)    #shape=[batch, 12, 2]
-
-        output5_reverse = tf.reverse(output5, axis=[1])
-        output6 = embadding(output5_reverse)
-        output7 = LSTM(output6)  # shape=[12, 64]
-        output8 = MLP(output7)
-        output9 = keras.layers.Reshape([self.obs_frames, 2*self.pred_frames])(output8)
-        rebuild = keras.layers.Dense(2)(output9)
-        rebuild_reverse = tf.reverse(rebuild, [1])
-        
-        lstm = keras.Model(inputs=inputs, outputs=[output5, rebuild_reverse])
-
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-    def loss(self, model_output, gt, obs='null'):
-        self.loss_namelist = ['ADE_t', 'rebuild_t']
-        predict = model_output[0]
-        rebuild = model_output[1]
-        loss_ADE = calculate_ADE(predict, gt)
-        loss_rebuild = calculate_ADE(rebuild, obs)
-        loss_list = tf.stack([loss_ADE, loss_rebuild])
-        return 1.0 * loss_ADE + 0.4 * loss_rebuild, loss_list
-
-    def loss_eval(self, model_output, gt, obs='null'):
-        self.loss_eval_namelist = ['ADE', 'FDE', 'L2_rebuild']
-        predict = model_output[0]
-        rebuild = model_output[1]
-        loss_ADE = calculate_ADE(predict, gt).numpy()
-        loss_FDE = calculate_FDE(predict, gt).numpy()
-        loss_rebuild = calculate_ADE(rebuild, obs).numpy()
-
-        return loss_ADE, loss_FDE, loss_rebuild
-
-
-class LSTM_ED(__Base_Model):
+class LSTM_ED(Base_Model):
     def __init__(self, train_info, args):
         super().__init__(train_info, args)
         self.fc_size = 16
@@ -560,7 +508,7 @@ class LSTM_ED(__Base_Model):
         return result, ADE_FDE.numpy()
 
 
-class Linear(__Base_Model):
+class Linear(Base_Model):
     def __init__(self, train_info, args):
         super().__init__(train_info, args)
         self.args.batch_size = 1

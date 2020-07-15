@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-06-22 13:12:12
+@LastEditTime: 2020-07-15 15:25:53
 @Description: main of Erina
 '''
 import argparse
@@ -14,8 +14,21 @@ import tensorflow as tf
 
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
 from PrepareTrainData import Prepare_Train_Data
-from models import *
 from helpmethods import dir_check
+from models import (
+    LSTM_FC,
+    Linear,
+    LSTMcell,
+    SS_LSTM,
+    LSTM_FC_hardATT,
+)
+
+from develop_models import (
+    FC_cycle,
+    SS_cycle,
+    SS_LSTM_beta
+)
+
 
 matplotlib_axes_logger.setLevel('ERROR')        # 画图警告
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"       # kNN问题
@@ -108,8 +121,6 @@ def main():
         model = LSTM_ED
     elif args.model == 'LSTM_FC':
         model = LSTM_FC
-    elif args.model == 'LSTM-Social':
-        model = LSTM_Social
     elif args.model == 'Linear':
         model = Linear
     elif args.model == 'cycle':
@@ -117,9 +128,11 @@ def main():
     elif args.model == 'LSTMcell':
         model = LSTMcell
     elif args.model == 'SSLSTM':
-        model = SS_LSTM
+        model = SS_LSTM_beta
     elif args.model == 'test':
         model = LSTM_FC_hardATT
+    elif args.model == 'sscycle':
+        model = SS_cycle
 
     model(train_info=inputs, args=args).run_commands()
 
