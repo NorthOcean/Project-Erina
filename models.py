@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
-@LastEditors: Conghao Wong
-@LastEditTime: 2020-06-29 16:47:33
+LastEditors: Conghao Wong
+LastEditTime: 2020-08-08 23:34:11
 @Description: classes and methods of training model
 '''
 import os
@@ -178,7 +178,8 @@ class Base_Model():
         test_results = []
         test_loss_dict = dict()
         test_loss_dict['-'] = 0
-        for epoch in (time_bar := tqdm(range(self.args.epochs))):
+        time_bar = tqdm(range(self.args.epochs))
+        for epoch in time_bar:
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
             loss_list = []
@@ -350,10 +351,11 @@ class SS_LSTM(Base_Model):
 
     def create_model(self):
         positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding)
+        positions_embadding_lstm = keras.layers.Dense(64)(positions)
+        positions_embadding_state = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
 
-        concat_feature = tf.concat([traj_feature, positions_embadding], axis=-1)
+        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
         feature_flatten = tf.reshape(concat_feature, [-1, self.obs_frames * 64 * 2])
         feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])

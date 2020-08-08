@@ -1,8 +1,8 @@
 '''
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
-@LastEditors: Conghao Wong
-@LastEditTime: 2020-06-22 18:18:28
+LastEditors: Conghao Wong
+LastEditTime: 2020-08-08 23:22:58
 @Description: file content
 '''
 
@@ -39,8 +39,7 @@ def get_parser():
     # parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
     parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
     parser.add_argument('--max_refine', type=float, default=0.8)   # 最大修正尺寸
-
-    parser.add_argument('--savefig', type=int, default=True)
+    parser.add_argument('--savefig', type=int, default=False)
 
     return parser
 
@@ -263,8 +262,8 @@ if __name__ == "__main__":
     savefig = args.savefig
     
     ade_gain = []
-    # timebar = tqdm(range(len(frame_data)))
-    timebar = tqdm(range(13, 14))
+    timebar = tqdm(range(len(frame_data)))
+    # timebar = tqdm(range(13, 14))
     for frame_index, frame in enumerate(timebar):
         a = GirdMap(args, frame_data[frame])
 

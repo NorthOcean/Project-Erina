@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 @LastEditors: Conghao Wong
-@LastEditTime: 2020-07-15 15:25:53
+@LastEditTime: 2020-07-15 17:02:54
 @Description: main of Erina
 '''
 import argparse
@@ -11,6 +11,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'        # 去除TF输出
 
 import time
 import tensorflow as tf
+import numpy as np
 
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
 from PrepareTrainData import Prepare_Train_Data
