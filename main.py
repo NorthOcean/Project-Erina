@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
-@LastEditors: Conghao Wong
-@LastEditTime: 2020-07-15 17:02:54
+LastEditors: Conghao Wong
+LastEditTime: 2020-08-11 19:36:12
 @Description: main of Erina
 '''
 import argparse
@@ -22,6 +22,9 @@ from models import (
     LSTMcell,
     SS_LSTM,
     LSTM_FC_hardATT,
+    SS_LSTM_hardATT,
+    SS_LSTM_lite,
+    SS_LSTM_noSTATE,
 )
 
 from develop_models import (
@@ -43,7 +46,7 @@ def get_parser():
     parser.add_argument('--obs_frames', type=int, default=8)
     parser.add_argument('--pred_frames', type=int, default=12)
     parser.add_argument('--test_set', type=int, default=2)
-    parser.add_argument('--gpu', type=int, default=1)
+    parser.add_argument('--gpu', type=int, default=2)
 
     # training data settings
     parser.add_argument('--train_type', type=str, default='one')        
@@ -53,7 +56,7 @@ def get_parser():
     parser.add_argument('--frame', type=str, default='01234567')
     parser.add_argument('--train_percent', type=float, default=0.7)     # 用于训练数据的百分比
     parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
-    parser.add_argument('--reverse', type=int, default=True)            # 按时间轴翻转训练数据
+    parser.add_argument('--reverse', type=int, default=False)            # 按时间轴翻转训练数据
     parser.add_argument('--add_noise', type=int, default=False)         # 训练数据添加噪声
     parser.add_argument('--noise_on_reverse', type=int, default=False)  # 是否在反转后的数据上添加噪声
     parser.add_argument('--normalization', type=int, default=False)
@@ -129,7 +132,14 @@ def main():
     elif args.model == 'LSTMcell':
         model = LSTMcell
     elif args.model == 'SSLSTM':
-        model = SS_LSTM_beta
+        model = SS_LSTM
+    elif args.model == 'SSLSTMhard':
+        model = SS_LSTM_hardATT
+    elif args.model == 'SSLSTMlite':
+        model = SS_LSTM_lite
+    elif args.model == 'SSLSTMNOSTATE':
+        model = SS_LSTM_noSTATE
+        args.normalization = True
     elif args.model == 'test':
         model = LSTM_FC_hardATT
     elif args.model == 'sscycle':

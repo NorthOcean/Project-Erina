@@ -1,12 +1,14 @@
 data
 dataset_npz
 logs
+results
 vis_backround_image
 .vscode
 vislogs
 *.npy
 *.png
 *.txt
+*.csv
 
 __pycache__
 .DS_Store

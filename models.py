@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-08 23:34:11
+LastEditTime: 2020-08-11 21:45:30
 @Description: classes and methods of training model
 '''
 import os
@@ -49,9 +49,9 @@ class Base_Model():
             self.model, self.agents_test, self.args = self.load_data_and_model()
             self.model.summary()
         
-        if self.args.test:
-            self.agents_test = self.test(self.agents_test)
-            self.draw_pred_results(self.agents_test)
+            if self.args.test:
+                self.agents_test = self.test(self.agents_test)
+                self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
         self.obs_frames = self.args.obs_frames
@@ -63,9 +63,9 @@ class Base_Model():
             return
 
         self.agents_train = self.train_info['train_data']
-        self.train_index = self.train_info['train_index']
+       
         self.agents_test = self.train_info['test_data']
-        self.test_index = self.train_info['test_index']
+      
         self.train_number = self.train_info['train_number']
         self.sample_time = self.train_info['sample_time'] 
     
@@ -90,6 +90,30 @@ class Base_Model():
         self.loss_eval_namelist = ['ADE', 'FDE']
         return calculate_ADE(model_output[0], gt).numpy(), calculate_FDE(model_output[0], gt).numpy()
 
+    def prepare_train_data(self, input_agents):
+        input_trajs = []
+        gt = []
+        agent_index = []
+        for agent_index_current, agent in enumerate(tqdm(input_agents)):
+            for traj in agent.get_train_traj():
+                input_trajs.append(traj)
+
+            for traj_index, traj in enumerate(agent.get_gt_traj()):
+                gt.append(traj)
+                agent_index.append([agent_index_current, traj_index])
+
+        input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
+        gt = tf.cast(tf.stack(gt), tf.float32)
+        return [input_trajs, gt], agent_index
+
+    def forward_train(self, train_tensor, index):
+        input_trajs = train_tensor[0][index[0]:index[1]]
+        gt = train_tensor[1][index[0]:index[1]]
+        output = self.model(input_trajs)
+        if not type(output) == list:
+            output = [output]
+        return output, gt, input_trajs
+
     def forward(self, input_agents):
         """This method is a direct IO"""
         model_inputs = tf.cast(tf.stack([agent.get_train_traj() for agent in input_agents]), tf.float32)
@@ -103,53 +127,24 @@ class Base_Model():
             input_agents[i].pred_fix()
         return input_agents
 
-    def forward_train(self, inputs, agents_train='null'):
-        output = self.model(inputs)
+    def forward_test(self, test_tensor):
+        input_trajs = test_tensor[0]
+        gt = test_tensor[1]
+        output = self.model(input_trajs)
         if not type(output) == list:
             output = [output]
-        return output
+        return output, gt, input_trajs
 
-    def __forward_train(self, input_agents):
-        input_trajs = tf.cast(tf.stack(
-            [traj for agent in input_agents for traj in agent.get_train_traj()]
-        ), tf.float32)
-        gt = tf.cast(tf.stack(
-            [traj for agent in input_agents for traj in agent.get_gt_traj()]
-        ), tf.float32)
-        return self.forward_train(input_trajs, input_agents), gt, input_trajs
-
-    def forward_test(self, inputs, gt='null', agents_test='null'):
-        output = self.model(inputs)
-        if not type(output) == list:
-            output = [output]
-        return output
-
-    def __forward_test(self, input_agents):
-        input_trajs = []
-        gt = []
-        test_index = []
-        for index, agent in enumerate(input_agents):
-            train_current = agent.get_train_traj()
-            gt_current = agent.get_gt_traj()
-            for train, g in zip(train_current, gt_current):
-                input_trajs.append(train)
-                gt.append(g)
-                test_index.append(index)
-
-        
-        input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
-        gt = tf.cast(tf.stack(gt), tf.float32)
-        return self.forward_test(input_trajs, gt, input_agents), gt, input_trajs, test_index
-
-    def test_step(self, input_agents):
-        model_output, gt, obs, test_index = self.__forward_test(input_agents)
+    def test_step(self, test_tensor, input_agents, test_index, write_result=False):
+        model_output, gt, obs = self.forward_test(test_tensor)
         loss_eval = self.loss_eval(model_output, gt, obs=obs)
         
-        for i, agent in enumerate(input_agents):
-            input_agents[i].clear_pred()
-            
-        for i, output_curr in enumerate(model_output[0]):
-            input_agents[test_index[i]].write_pred(output_curr.numpy())
+        if write_result:
+            for i, agent in enumerate(input_agents):
+                input_agents[i].clear_pred()
+                
+            for i, output_curr in enumerate(model_output[0]):
+                input_agents[test_index[i][0]].write_pred(output_curr.numpy(), index=test_index[i][1])
 
         return model_output, loss_eval, gt, input_agents
     
@@ -173,8 +168,12 @@ class Base_Model():
             self.args.batch_size,
             self.args.lr,
         ))
+
+        print('\nPrepare training data...')
+        self.train_tensor, self.train_index = self.prepare_train_data(self.agents_train)
+        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
         
-        print('\n\nStart Training:')
+        print('\nStart Training:')
         test_results = []
         test_loss_dict = dict()
         test_loss_dict['-'] = 0
@@ -186,11 +185,9 @@ class Base_Model():
             for batch in range(batch_number):
                 batch_start = batch * self.args.batch_size
                 batch_end = tf.minimum((batch + 1) * self.args.batch_size, self.train_number)
-                agents_current = self.agents_train[batch_start : batch_end]
-                index_current = self.train_index[batch_start : batch_end]
 
                 with tf.GradientTape() as tape:
-                    model_output_current, gt_current, obs_current = self.__forward_train(agents_current)
+                    model_output_current, gt_current, obs_current = self.forward_train(self.train_tensor, [batch_start, batch_end])
                     loss_ADE, loss_list_current = self.loss(model_output_current, gt_current, obs=obs_current)
                     ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
 
@@ -203,7 +200,7 @@ class Base_Model():
             loss_list = tf.reduce_mean(tf.stack(loss_list), axis=0).numpy()
 
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
-                model_output, loss_eval, _, _ = self.test_step(self.agents_test)
+                model_output, loss_eval, _, _ = self.test_step(self.test_tensor, self.agents_test, self.test_index, write_result=False)
                 test_results.append(loss_eval)
                 test_loss_dict = create_loss_dict(loss_eval, self.loss_eval_namelist)
             
@@ -237,14 +234,19 @@ class Base_Model():
             np.save(self.test_data_save_path.format('args'), self.args)
             print('Trained model is saved at "{}".'.format(self.model_save_path.split('.h5')[0]))
             print('To re-test this model, please use "python main.py --load {}".'.format(self.model_save_path.split('.h5')[0]))
+            
+            model_name = self.model_save_path.split('.h5')[0].split('/')[-1]
+            np.savetxt('./results/result-{}{}.txt'.format(model_name, self.args.test_set), latest_results)
+            with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
+                f.write(self.model_save_path.split('.h5')[0])
     
     def test(self, agents_test):
+        print('\nPrepare test data...')
+        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
         test_agents_number = len(agents_test)
         print('Start test:')    
-        model_output, loss_eval, gt_test, agents_test = self.test_step(agents_test)
+        model_output, loss_eval, gt_test, agents_test = self.test_step(self.test_tensor,  agents_test, self.test_index, write_result=True)
         pred_traj = model_output[0].numpy()
-        # for i in range(len(agents_test)):
-        #     agents_test[i].pred = pred_traj[i]
 
         print('test_loss={}'.format(create_loss_dict(loss_eval, self.loss_eval_namelist)))
         for loss in loss_eval:
@@ -294,7 +296,7 @@ class LSTM_FC_hardATT(Base_Model):
         super().__init__(train_info, args)
 
     def create_model(self):
-        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use 4 frames of input
+        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use N frames of input
         positions_embadding = keras.layers.Dense(64)(positions)
         traj_feature = keras.layers.LSTM(64)(positions_embadding)
         output3 = keras.layers.Dense(self.pred_frames * 16)(traj_feature)
@@ -302,24 +304,28 @@ class LSTM_FC_hardATT(Base_Model):
         output5 = keras.layers.Dense(2)(output4)
         lstm = keras.Model(inputs=positions, outputs=[output5], name='LSTM_FC')
 
-        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm.build(input_shape=[None, len(self.args.frame), 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         
         return lstm, lstm_optimizer
 
-    def forward_train(self, inputs, agents_train='null'):
-        inputs = tf.gather(inputs, self.frame_index, axis=1)
-        output = self.model(inputs)
+    def forward_train(self, train_tensor, index):
+        input_trajs = train_tensor[0][index[0]:index[1]]
+        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
+        gt = train_tensor[1][index[0]:index[1]]
+        output = self.model(input_trajs)
         if not type(output) == list:
             output = [output]
-        return output
+        return output, gt, input_trajs
 
-    def forward_test(self, inputs, gt='null', agents_test='null'):
-        inputs = tf.gather(inputs, self.frame_index, axis=1)
-        output = self.model(inputs)
+    def forward_test(self, test_tensor):
+        input_trajs = test_tensor[0]
+        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
+        gt = test_tensor[1]
+        output = self.model(input_trajs)
         if not type(output) == list:
             output = [output]
-        return output
+        return output, gt, input_trajs
 
 
 class LSTM_FC_develop_beta(Base_Model):
@@ -351,14 +357,75 @@ class SS_LSTM(Base_Model):
 
     def create_model(self):
         positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding_lstm = keras.layers.Dense(64)(positions)
+        start_point = tf.reshape(positions[:, -1, :], [-1, 1, 2])
+        
+        positions_n = positions - start_point
+        positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
         positions_embadding_state = keras.layers.Dense(64)(positions)
         traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
 
         concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
-        feature_flatten = tf.reshape(concat_feature, [-1, self.obs_frames * 64 * 2])
+        feature_fc1 = keras.layers.Dense(64)(concat_feature)
+        feature_flatten = tf.reshape(feature_fc1, [-1, self.obs_frames * 64])
         feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
+        output5 = keras.layers.Dense(2)(feature_reshape)
+        output5 = output5 + start_point
+        lstm = keras.Model(inputs=positions, outputs=[output5])
+
+        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
+
+    def get_feature(self, inputs):
+        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape').output)
+        return submodel(inputs)
+
+
+class SS_LSTM_noSTATE(Base_Model):
+    """
+    `S`tate and `S`equence `LSTM`
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
+        positions_embadding_lstm = keras.layers.Dense(64)(positions)
+        # positions_embadding_state = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
+
+        # concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
+        # feature_fc1 = keras.layers.Dense(64)(traj_feature)
+        feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
+        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
+        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
+        output5 = keras.layers.Dense(2)(feature_reshape)
+        lstm = keras.Model(inputs=positions, outputs=[output5])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
+
+
+class SS_LSTM_lite(Base_Model):
+    """
+    `S`tate and `S`equence `LSTM`
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
+        positions_embadding_lstm = keras.layers.Dense(32)(positions)
+        positions_embadding_state = keras.layers.Dense(32)(positions[:, -1, :])
+        traj_feature = keras.layers.LSTM(32, return_sequences=False)(positions_embadding_lstm)
+
+        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
+        feature_flatten = concat_feature
+        feature_fc = keras.layers.Dense(self.pred_frames * 16)(feature_flatten)
+        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 16])
         output5 = keras.layers.Dense(2)(feature_reshape)
         lstm = keras.Model(inputs=positions, outputs=[output5])
 
@@ -366,6 +433,51 @@ class SS_LSTM(Base_Model):
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         
         return lstm, lstm_optimizer
+
+
+class SS_LSTM_hardATT(Base_Model):
+    """
+    `S`tate and `S`equence `LSTM`
+    """
+    def __init__(self, train_info, args):
+        self.frame_index = tf.constant(args.frame)
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use N frames of input
+        positions_embadding_lstm = keras.layers.Dense(64)(positions)
+        # positions_embadding_state = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
+
+        concat_feature = tf.concat([traj_feature, positions_embadding_lstm], axis=-1)
+        feature_flatten = tf.reshape(concat_feature, [-1, len(self.args.frame) * 64 * 2])
+        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
+        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
+        output5 = keras.layers.Dense(2)(feature_reshape)
+        lstm = keras.Model(inputs=positions, outputs=[output5])
+
+        lstm.build(input_shape=[None, len(self.args.frame), 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
+    
+    def forward_train(self, train_tensor, index):
+        input_trajs = train_tensor[0][index[0]:index[1]]
+        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
+        gt = train_tensor[1][index[0]:index[1]]
+        output = self.model(input_trajs)
+        if not type(output) == list:
+            output = [output]
+        return output, gt, input_trajs
+
+    def forward_test(self, test_tensor):
+        input_trajs = test_tensor[0]
+        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
+        gt = test_tensor[1]
+        output = self.model(input_trajs)
+        if not type(output) == list:
+            output = [output]
+        return output, gt, input_trajs
 
 
 class LSTMcell(Base_Model):
@@ -411,6 +523,7 @@ class LSTMcell(Base_Model):
         return lstm, lstm_optimizer
 
 
+"""
 class LSTM_ED(Base_Model):
     def __init__(self, train_info, args):
         super().__init__(train_info, args)
@@ -508,6 +621,7 @@ class LSTM_ED(Base_Model):
             np.save(save_format.format('mean'), mean_traj)
 
         return result, ADE_FDE.numpy()
+"""
 
 
 class Linear(Base_Model):
@@ -556,19 +670,25 @@ class Linear(Base_Model):
     def create_model(self):
         return self.predict_linear_for_person, 0
 
-    def forward_train(self, inputs, agents_train='null'):
-        results = []
-        for inputs_current in inputs:
-            results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))
-        
-        return [tf.stack(results)]
+    def forward_train(self, train_tensor, index):
+        input_trajs = train_tensor[0][index[0]:index[1]]
+        gt = train_tensor[1][index[0]:index[1]]
 
-    def forward_test(self, inputs, gt='null', agents_train='null'):
         results = []
-        for inputs_current in inputs:
+        for inputs_current in input_trajs:
             results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))
         
-        return [tf.stack(results)]
+        return [tf.stack(results)], gt, input_trajs
+
+    def forward_test(self, test_tensor):
+        input_trajs = test_tensor[0]
+        gt = test_tensor[1]
+        
+        results = []
+        for inputs_current in input_trajs:
+            results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))     
+        
+        return output, gt, input_trajs
 
     
 

@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
-@LastEditors: Conghao Wong
-@LastEditTime: 2020-06-22 12:55:59
+LastEditors: Conghao Wong
+LastEditTime: 2020-08-11 21:53:54
 @Description: file content
 '''
 import os
@@ -38,41 +38,50 @@ class Prepare_Train_Data():
         dir_check('./dataset_npz/')
         self.npy_file_base_path = './dataset_npz/{}/data.npz'
 
-        train_list = [self.args.test_set]
-        test_list = [self.args.test_set]
+        if self.args.train_type == 'one':
+            train_list = [self.args.test_set]
+            test_list = [self.args.test_set]
         
-        all_data_list = []
+        elif self.args.train_type == 'all':
+            # self.args.normalization = True
+            test_list = [self.args.test_set]
+            train_list = [i for i in range(5) if not i == self.args.test_set]
+        
+        all_data = []
+        sample_number_original = 0
+        train_data = []
         for dataset in train_list:
-            all_data_list.append(self.get_agents_from_dataset(dataset))
-                
-        all_data = all_data_list[0][0]      # `Agent_part`类或`Frame`类
-        sample_number_original = all_data_list[0][1]
+            data_current, number_current = self.get_agents_from_dataset(dataset)
+            all_data += data_current
+            sample_number_original += number_current
+            train_data.append(data_current)
         
         sample_number_total = len(all_data)
         sample_time = int(sample_number_total / sample_number_original)
-
-        index = set([i for i in range(sample_number_original)])
-        if USE_SEED:
-            random.seed(SEED)
-        train_index = random.sample(index, int(sample_number_original * self.args.train_percent))
-        test_index = list(index - set(train_index))
         
-        train_data = [all_data[(more_sample + 1) * index] for more_sample in range(sample_time) for index in train_index]
-        train_index = [(more_sample + 1) * index for more_sample in range(sample_time) for index in train_index]
+        if self.args.train_type == 'one':
+            index = set([i for i in range(sample_number_original)])
+            if USE_SEED:
+                random.seed(SEED)
+            train_index = random.sample(index, int(sample_number_original * self.args.train_percent))
+            test_index = list(index - set(train_index))
+            
+            train_data = [all_data[(more_sample + 1) * index] for more_sample in range(sample_time) for index in train_index]
+            train_index = [(more_sample + 1) * index for more_sample in range(sample_time) for index in train_index]
+            
+            test_data = [all_data[index] for index in test_index]
+            test_index = test_index
         
-        test_data = [all_data[index] for index in test_index]
-        test_index = test_index
+        elif self.args.train_type == 'all':
+            train_data = all_data
+            test_data, _ = self.get_agents_from_dataset(test_list[0])
         
         train_info = dict()
-        train_info['all_agents'] = all_data
-        train_info['all_index'] = [i for i in range(sample_number_original)]
+        # train_info['all_agents'] = all_data
         train_info['train_data'] = train_data
-        train_info['train_index'] = train_index
         train_info['test_data'] = test_data
-        train_info['test_index'] = test_index
-        train_info['train_number'] = len(train_index)
-        train_info['sample_time'] = sample_time      
-
+        train_info['train_number'] = len(train_data)
+        train_info['sample_time'] = sample_time  
         return train_info
 
     def data_loader(self, dataset_index):
@@ -392,23 +401,30 @@ class Agent_Part():
     
     def agent_normalization(self):
         """Attention: This method will change the value inside the agent!"""
-        self.traj_min = np.min(self.traj, axis=0)
-        self.traj_max = np.max(self.traj, axis=0)
-        self.traj_coe = self.traj_max - self.traj_min
-        self.traj = (self.traj - self.traj_min)/self.traj_coe
-        # self.start_point = self.traj[0]
-        # self.traj = self.traj - self.start_point
+        # self.traj_min = np.min(self.traj, axis=0)
+        # self.traj_max = np.max(self.traj, axis=0)
+        # self.traj_coe = self.traj_max - self.traj_min
+
+        self.start_point = np.array([0.0, 0.0])
+        if np.linalg.norm(self.traj[0] - self.traj[7]) >= 0.2:
+            self.start_point = self.traj[7]
+            self.traj = self.traj - self.start_point
+        
+        # self.traj = (self.traj - self.traj_min)/self.traj_coe
         self.initialize()
 
     def pred_fix(self):
         if self.already_fixed:
             return
         
+        self.traj += self.start_point
+        self.pred += self.start_point
+        
+        # else:
+        #     self.traj = self.traj * self.traj_coe + self.traj_min
+        #     self.pred = self.pred * self.traj_coe + self.traj_min
+
         self.already_fixed = True
-        # self.traj = self.traj + self.start_point * self.normalization
-        # self.pred = self.pred + self.start_point * self.normalization
-        self.traj = self.traj * self.traj_coe + self.traj_min
-        self.pred = self.pred * self.traj_coe + self.traj_min
         self.initialize()
 
     def get_train_traj(self):
@@ -420,8 +436,9 @@ class Agent_Part():
     def get_pred_traj(self):
         return [self.pred]
 
-    def write_pred(self, pred):
+    def write_pred(self, pred, index):
         self.pred = pred
+        self.pred_fix()
 
     def clear_pred(self):
         self.pred = 0
@@ -547,11 +564,11 @@ class Frame():
     def get_pred_traj(self):
         return np.stack(self.pred)
 
-    def write_pred(self, pred):
-        self.pred.append(pred)
+    def write_pred(self, pred, index):
+        self.pred[index] = pred
 
     def clear_pred(self):
-        self.pred = []
+        self.pred = [[] for _ in range(len(self.traj_gt))]
 
 
 def calculate_distance_matrix(positions, exp=False):
