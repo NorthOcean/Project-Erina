@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-11 19:36:12
+LastEditTime: 2020-08-11 22:34:22
 @Description: main of Erina
 '''
 import argparse
@@ -54,7 +54,7 @@ def get_parser():
     # 'all': 使用除测试外的所有数据集训练
     parser.add_argument('--train_base', type=str, default='agent')
     parser.add_argument('--frame', type=str, default='01234567')
-    parser.add_argument('--train_percent', type=float, default=0.7)     # 用于训练数据的百分比
+    parser.add_argument('--train_percent', type=float, default=0.5)     # 用于训练数据的百分比
     parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
     parser.add_argument('--reverse', type=int, default=False)            # 按时间轴翻转训练数据
     parser.add_argument('--add_noise', type=int, default=False)         # 训练数据添加噪声

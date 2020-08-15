@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-11 21:53:54
+LastEditTime: 2020-08-15 22:11:38
 @Description: file content
 '''
 import os
@@ -82,6 +82,11 @@ class Prepare_Train_Data():
         train_info['test_data'] = test_data
         train_info['train_number'] = len(train_data)
         train_info['sample_time'] = sample_time  
+
+        # test_options
+        # np.save('./test_data_seed10/train{}.npy'.format(self.args.test_set), train_data)
+        # np.save('./test_data_seed10/test{}.npy'.format(self.args.test_set), test_data)
+        # raise
         return train_info
 
     def data_loader(self, dataset_index):
@@ -147,23 +152,23 @@ class Prepare_Train_Data():
 
         if os.path.exists(npy_path):
             # 从保存的npy数据集文件中读
-            video_neighbor_list, video_social_matrix, video_matrix = self.load_video_matrix(dataset)
+            video_neighbor_list, video_matrix = self.load_video_matrix(dataset)
         else:
             # 新建npy数据集文件
             person_data, frame_data = self.data_loader(dataset)
-            video_neighbor_list, video_social_matrix, video_matrix = self.create_video_matrix(
+            video_neighbor_list, video_matrix = self.create_video_matrix(
                 person_data, 
                 frame_data, 
                 save_path=npy_path
             )
 
         if self.args.train_base == 'agent':
-            agents, original_sample_number, self.all_agents = self.get_agents(video_neighbor_list, video_social_matrix, video_matrix)
+            agents, original_sample_number, self.all_agents = self.get_agents(video_neighbor_list, video_matrix)
             print('\nPrepare agent data in dataset {} done.'.format(dataset))
             return agents, original_sample_number
             
         elif self.args.train_base == 'frame':
-            frames, original_sample_number = self.get_frames(video_neighbor_list, video_social_matrix, video_matrix, self.args.init_position)
+            frames, original_sample_number = self.get_frames(video_neighbor_list, video_matrix, self.args.init_position)
             return frames, original_sample_number
         
     def load_video_matrix(self, dataset):
@@ -173,13 +178,13 @@ class Prepare_Train_Data():
         print('Load data from "{}"...'.format(self.npy_file_base_path.format(dataset)))
         all_data = np.load(self.npy_file_base_path.format(dataset), allow_pickle=True)
         video_neighbor_list = all_data['video_neighbor_list']
-        video_social_matrix = all_data['video_social_matrix']
         video_matrix = all_data['video_matrix']
-        return video_neighbor_list, video_social_matrix, video_matrix
+        return video_neighbor_list, video_matrix
 
     def create_video_matrix(self, person_data, frame_data, save_path='null'):
         """
-        计算social matrix和social neighbor
+        计算social neighbor
+        `video_matrix`: shape = [frame_number, person_number, 2]
         """
         person_list = np.sort(np.stack([float(person) for person in person_data])).astype(np.str)
         frame_list = np.sort(np.stack([float(frame) for frame in frame_data])).astype(np.str)
@@ -190,51 +195,26 @@ class Prepare_Train_Data():
         video_matrix = self.args.init_position * np.ones([frame_number, person_number, 2])
         for person in person_data:
             person_index = np.where(person_list == person)[0][0]
-
             frame_list_current = (person_data[person]).T[0].astype(np.str)
             frame_index_current = np.reshape(np.stack([np.where(frame_current == frame_list) for frame_current in frame_list_current]), [-1])
             traj_current = person_data[person][:, 1:]
             video_matrix[frame_index_current, person_index, :] = traj_current
 
-        person_enter_frame = np.where(np.not_equal(video_matrix[:, :, 0], self.args.init_position), 1.0, 0.0).T
-        person_enter_frame_smooth = np.ones_like(person_enter_frame)
-        n = 3
-        for i, person in enumerate(person_enter_frame):
-            person_enter_frame_smooth[i, :] = np.convolve(person, np.ones((n))/n, mode='same')
-
-        video_social_matrix = np.zeros([frame_number, person_number, person_number])
         video_neighbor_list = []
-        for i, frame in enumerate(tqdm(video_matrix, desc='Calculate social matrix', ncols=300)):
-            print('Calculate social matrix in frame {}/{}...'.format(i+1, frame_number), end='\r')
-            matrix_half = calculate_distance_matrix(frame, exp=True) * person_enter_frame_smooth[:, i]  # 上三角数据有效
-            matrix_total = np.minimum(matrix_half, matrix_half.T)
-
-            neighbor_list = []
-            for p, person in enumerate(matrix_total):
-                if not np.sum(person):
-                    neighbor_list.append([])
-                    continue
-
-                neighbor_number = np.sum(person > 0)
-                neighbor_list_current = ((np.argsort(person)[-min(self.max_neighbor, neighbor_number):])[::-1]).tolist()
-                if (p in neighbor_list) and (self.args.future_interaction == False):
-                    neighbor_list_current.remove(p)
-                neighbor_list.append(neighbor_list_current)
-
-            video_neighbor_list.append(neighbor_list)
-            video_social_matrix[i, :, :] = matrix_total
+        for frame_index, frame_data in enumerate(tqdm(video_matrix, desc='Calculate social matrix')):
+            person_appear = np.where(np.not_equal(frame_data.T[0], self.args.init_position))[0]
+            video_neighbor_list.append(person_appear)
 
         if not save_path == 'null':
             np.savez(
                 save_path, 
                 video_neighbor_list=video_neighbor_list,
-                video_social_matrix=video_social_matrix,
                 video_matrix=video_matrix,
             )
 
-        return video_neighbor_list, video_social_matrix, video_matrix
+        return video_neighbor_list, video_matrix
     
-    def get_agents(self, video_neighbor_list, video_social_matrix, video_matrix):
+    def get_agents(self, video_neighbor_list, video_matrix):
         """
         使用social matrix计算每个人的`Agent`类，并取样得到用于训练的`Agent_part`类数据
             return: agents(取样后, type=`Agent_part`), original_sample_number, all_agents(type=`Agent`)
@@ -246,13 +226,11 @@ class Prepare_Train_Data():
             all_agents.append(Agent(
                 person, 
                 video_neighbor_list, 
-                video_social_matrix, 
                 video_matrix, 
                 self.args.init_position,
             ))
 
         for person in tqdm(range(person_number), desc='Calculate agent data'):
-            # print('Calculate agent data {}/{}...'.format(person+1, person_number), end='\r')
             agent_current = all_agents[person]
             start_frame = agent_current.start_frame
             end_frame = agent_current.end_frame
@@ -266,6 +244,7 @@ class Prepare_Train_Data():
                     frame_point, 
                     frame_point+self.obs_frames, 
                     frame_point+self.total_frames,
+                    all_agents=all_agents,
                     future_interaction=self.args.future_interaction,
                     calculate_social=self.args.calculate_social,
                     normalization=self.args.normalization,
@@ -299,7 +278,7 @@ class Prepare_Train_Data():
         
         return agents, original_sample_number, all_agents
 
-    def get_frames(self, video_neighbor_list, video_social_matrix, video_matrix, init_position):
+    def get_frames(self, video_neighbor_list, video_matrix, init_position):
         """
         取样得到用于训练的`Frames`类数据
             return: frames(取样后, type=`Frames`), original_sample_number
@@ -312,8 +291,7 @@ class Prepare_Train_Data():
 
             frames.append(Frame(
                 frame_point, self.args.obs_frames, self.args.pred_frames,
-                video_neighbor_list, 
-                video_social_matrix, 
+                video_neighbor_list,
                 video_matrix, 
                 init_position
             ))
@@ -337,8 +315,8 @@ class Prepare_Train_Data():
         return frames, original_sample_number
 
 class Agent_Part():
-    def __init__(self, traj, neighbor_list, social_vector, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False):
-        self.traj = traj
+    def __init__(self, agent_index, all_agents, neighbor_list, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False):
+        self.traj = all_agents[agent_index].traj[start_frame:end_frame]
         self.pred = 0
         self.start_point = self.traj[0]
         self.start_frame = start_frame
@@ -352,9 +330,18 @@ class Agent_Part():
         self.normalization = normalization 
 
         self.neighbor_list = neighbor_list
-        self.social_vector = social_vector
+        self.neighbor_traj = []
+        for neighbor_index in self.neighbor_list:
+            neighbor = all_agents[neighbor_index]
+            neighbor_traj = neighbor.traj[start_frame:obs_frame]
+            
+            neighbor_traj[0:np.maximum(neighbor.start_frame, start_frame)-start_frame] = neighbor_traj[np.maximum(neighbor.start_frame, start_frame)-start_frame]
+            neighbor_traj[np.minimum(neighbor.end_frame, obs_frame)-start_frame:obs_frame-start_frame] = neighbor_traj[np.minimum(neighbor.end_frame, obs_frame)-start_frame-1]
+            self.neighbor_traj.append(neighbor_traj)
         
-        self.already_fixed = False
+        self.neighbor_number = len(self.neighbor_list)
+        self.need_to_fix = False
+        self.need_to_fix_neighbor = False
         self.initialize()  
         if normalization:
             self.agent_normalization()   
@@ -363,11 +350,6 @@ class Agent_Part():
         self.traj_train = self.traj[:self.obs_length]
         self.traj_gt = self.traj[self.obs_length:]
 
-        if self.calculate_social:
-            self.neighbor_agent = []
-            self.neighbor_list_current = self.neighbor_list[self.obs_length]
-            self.social_vector_current = self.social_vector[self.obs_length]
-
         if self.future_interaction:
             self.traj_pred = predict_linear_for_person(self.traj_train, self.total_frame)[self.obs_length:]
             # self.traj_pred = np.concatenate([self.traj_train, self.traj_future_predict], axis=0)
@@ -375,7 +357,6 @@ class Agent_Part():
     def reverse(self):
         traj_r = self.traj[::-1]
         neighbor_list_r = self.neighbor_list[::-1]
-        social_vector_r = self.social_vector[::-1]
         return Agent_Part(
             traj_r, 
             neighbor_list_r, 
@@ -392,7 +373,6 @@ class Agent_Part():
         return Agent_Part(
             traj_noise,
             self.neighbor_list,
-            self.social_vector,
             self.start_frame,
             self.obs_frame,
             self.end_frame,
@@ -412,9 +392,11 @@ class Agent_Part():
         
         # self.traj = (self.traj - self.traj_min)/self.traj_coe
         self.initialize()
+        self.need_to_fix = True
+        self.need_to_fix_neighbor = True
 
     def pred_fix(self):
-        if self.already_fixed:
+        if not self.need_to_fix:
             return
         
         self.traj += self.start_point
@@ -424,45 +406,64 @@ class Agent_Part():
         #     self.traj = self.traj * self.traj_coe + self.traj_min
         #     self.pred = self.pred * self.traj_coe + self.traj_min
 
-        self.already_fixed = True
+        self.need_to_fix = False
         self.initialize()
+
+    def pred_fix_neighbor(self, pred):
+        if not self.need_to_fix_neighbor:
+            return
+            
+        pred += self.start_point
+        self.need_to_fix_neighbor = False
+        return pred
 
     def get_train_traj(self):
         return [self.traj_train]
 
+    def get_neighbor_traj(self):
+        return self.neighbor_traj
+
     def get_gt_traj(self):
-        return [self.traj_gt]
+        return self.traj_gt
 
     def get_pred_traj(self):
-        return [self.pred]
+        return self.pred
 
-    def write_pred(self, pred, index):
+    def write_pred(self, pred):
         self.pred = pred
         self.pred_fix()
+
+    def write_pred_neighbor(self, pred):
+        self.neighbor_pred = self.pred_fix_neighbor(pred)
+
+    def calculate_loss(self, loss_function):
+        self.loss = loss_function(self.get_pred_traj(), self.get_gt_traj())
+        return self.loss
 
     def clear_pred(self):
         self.pred = 0
 
 
 class Agent():
-    def __init__(self, agent_index, video_neighbor_list, video_social_matrix, video_matrix, init_position):
+    def __init__(self, agent_index, video_neighbor_list, video_matrix, init_position):
+        self.agent_index = agent_index
         self.traj = video_matrix[:, agent_index, :]
-        self.neighbor_list = [neighbor_list[agent_index] for neighbor_list in video_neighbor_list]
-        self.social_vector = video_social_matrix[:, agent_index, :]
+        self.video_neighbor_list = video_neighbor_list
 
         self.start_frame = np.where(np.not_equal(self.traj.T[0], init_position))[0][0]
         self.end_frame = np.where(np.not_equal(self.traj.T[0], init_position))[0][-1] + 1    # 取不到
     
-    def __call__(self, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False):
+    def __call__(self, start_frame, obs_frame, end_frame, all_agents, future_interaction=True, calculate_social=True, normalization=False):
         """end_frame is unreachable"""
-        traj = self.traj[start_frame:end_frame]
-        neighbor_list = [self.neighbor_list[frame] for frame in range(start_frame, end_frame)]
-        social_vector = self.social_vector[start_frame:end_frame]
+        neighbor_list = []
+        for index in range(start_frame, obs_frame):
+            neighbor_list += self.video_neighbor_list[index].tolist()
+        neighbor_list = set(neighbor_list) - set([self.agent_index])
 
         return Agent_Part(
-            traj, 
+            self.agent_index,
+            all_agents, 
             neighbor_list, 
-            social_vector, 
             start_frame, 
             obs_frame, 
             end_frame, 
@@ -473,8 +474,8 @@ class Agent():
 
 
 class Frame():
-    def __init__(self, frame_index, obs_length, pred_length, video_neighbor_list, video_social_matrix, video_matrix, init_position, reverse=False, add_noise=False):
-        [self.frame_index, self.obs_length, self.pred_length, self.video_neighbor_list, self.video_social_matrix, self.video_matrix, self.init_position] = [frame_index, obs_length, pred_length, video_neighbor_list, video_social_matrix, video_matrix, init_position]
+    def __init__(self, frame_index, obs_length, pred_length, video_neighbor_list, video_matrix, init_position, reverse=False, add_noise=False):
+        [self.frame_index, self.obs_length, self.pred_length, self.video_neighbor_list, self.video_matrix, self.init_position] = [frame_index, obs_length, pred_length, video_neighbor_list, video_matrix, init_position]
         
         self.total_length = obs_length + pred_length
         self.global_reverse = reverse
@@ -536,8 +537,7 @@ class Frame():
             self.frame_index, 
             self.obs_length, 
             self.pred_length, 
-            self.video_neighbor_list, 
-            self.video_social_matrix, 
+            self.video_neighbor_list,
             self.video_matrix, 
             self.init_position, 
             reverse=True,
@@ -549,7 +549,6 @@ class Frame():
             self.obs_length, 
             self.pred_length, 
             self.video_neighbor_list, 
-            self.video_social_matrix, 
             self.video_matrix, 
             self.init_position, 
             add_noise=True,

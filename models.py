@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-11 21:45:30
+LastEditTime: 2020-08-15 22:27:45
 @Description: classes and methods of training model
 '''
 import os
@@ -50,7 +50,8 @@ class Base_Model():
             self.model.summary()
         
             if self.args.test:
-                self.agents_test = self.test(self.agents_test)
+                self.agents_test = self.test(self.agents_test, test_on_neighbors=False)
+                np.save(os.path.join(self.log_dir, 'pred.npy'), self.agents_test)
                 self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
@@ -63,16 +64,17 @@ class Base_Model():
             return
 
         self.agents_train = self.train_info['train_data']
-       
         self.agents_test = self.train_info['test_data']
-      
         self.train_number = self.train_info['train_number']
         self.sample_time = self.train_info['sample_time'] 
     
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
         model = keras.models.load_model(base_path.format('.h5'))
-        agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
+        # agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
+        
+        # test options
+        agents_test = np.load('./test_data_seed10/test{}.npy'.format(self.args.test_set), allow_pickle=True)
         args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
         return model, agents_test, args
     
@@ -114,18 +116,13 @@ class Base_Model():
             output = [output]
         return output, gt, input_trajs
 
-    def forward(self, input_agents):
+    def forward(self, inputs):
         """This method is a direct IO"""
-        model_inputs = tf.cast(tf.stack([agent.get_train_traj() for agent in input_agents]), tf.float32)
+        model_inputs = tf.cast(inputs, tf.float32)
         outputs = self.model(model_inputs)
         if not type(outputs) == list:
             outputs = [outputs]
-        
-        pred_traj = outputs[0].numpy()
-        for i in range(len(input_agents)):
-            input_agents[i].pred = pred_traj[i]
-            input_agents[i].pred_fix()
-        return input_agents
+        return outputs[0].numpy()
 
     def forward_test(self, test_tensor):
         input_trajs = test_tensor[0]
@@ -240,16 +237,28 @@ class Base_Model():
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
     
-    def test(self, agents_test):
-        print('\nPrepare test data...')
-        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
-        test_agents_number = len(agents_test)
-        print('Start test:')    
-        model_output, loss_eval, gt_test, agents_test = self.test_step(self.test_tensor,  agents_test, self.test_index, write_result=True)
-        pred_traj = model_output[0].numpy()
+    def test(self, agents_test, test_on_neighbors=False):
+        all_loss = []
+        loss_name_list = ['ADE', 'FDE']
+        loss_function = calculate_ADE_FDE_numpy
 
-        print('test_loss={}'.format(create_loss_dict(loss_eval, self.loss_eval_namelist)))
-        for loss in loss_eval:
+        for index in tqdm(range(len(agents_test)), desc='Testing...'):
+            obs = agents_test[index].get_train_traj()
+            if test_on_neighbors and agents_test[index].neighbor_number > 0:
+                obs_neighbor = (np.stack(agents_test[index].get_neighbor_traj())).reshape([agents_test[index].neighbor_number, agents_test[index].obs_length, 2])
+                obs = np.concatenate([obs, obs_neighbor], axis=0)
+
+            pred = self.forward(obs)
+            agents_test[index].write_pred(pred[0])
+            all_loss.append(agents_test[index].calculate_loss(loss_function))
+            
+            if test_on_neighbors:
+                agents_test[index].write_pred_neighbor(pred[1:])
+        
+        loss = np.mean(np.stack(all_loss), axis=0)
+            
+        print('test_loss={}'.format(create_loss_dict(loss, loss_name_list)))
+        for l in loss:
             print(loss, end='\t')
         print('\nTest done.')
         return agents_test
@@ -379,7 +388,7 @@ class SS_LSTM(Base_Model):
         return lstm, lstm_optimizer
 
     def get_feature(self, inputs):
-        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape').output)
+        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
         return submodel(inputs)
 
 
@@ -736,6 +745,13 @@ def calculate_FDE(pred, GT):
     pred = tf.cast(pred, tf.float32)
     GT = tf.cast(GT, tf.float32)
     return tf.reduce_mean(tf.linalg.norm(pred[:, -1, :] - GT[:, -1, :], ord=2, axis=1))
+
+
+def calculate_ADE_FDE_numpy(pred, GT):
+    all_loss = np.linalg.norm(pred - GT, ord=2, axis=1)
+    ade = np.mean(all_loss)
+    fde = all_loss[-1]
+    return ade, fde
 
 
 def get_model_outputs(model, inputs, input_layer=0, output_layer=1):

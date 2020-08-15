@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-08 23:22:58
+LastEditTime: 2020-08-15 22:31:41
 @Description: file content
 '''
 
@@ -256,9 +256,9 @@ def calculate_length(vec1):
     return length1
 
 
-if __name__ == "__main__":
+def SocialRefine(pred_path):
     args = get_parser().parse_args()
-    frame_data = np.load('./testframes.npy', allow_pickle=True)
+    frame_data = np.load(pred_path, allow_pickle=True)
     savefig = args.savefig
     
     ade_gain = []
@@ -304,3 +304,7 @@ if __name__ == "__main__":
             plt.close()
 
     print(np.mean(np.stack(ade_gain)))
+
+
+if __name__ == "__main__":
+    SocialRefine('./logs/20200815-222809NAME0-SSLSTM0/pred.npy')
