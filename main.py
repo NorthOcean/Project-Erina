@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-11 22:34:22
+LastEditTime: 2020-08-21 22:58:16
 @Description: main of Erina
 '''
 import argparse
@@ -25,6 +25,7 @@ from models import (
     SS_LSTM_hardATT,
     SS_LSTM_lite,
     SS_LSTM_noSTATE,
+    SS_LSTM_selfatt,
 )
 
 from develop_models import (
@@ -85,7 +86,7 @@ def get_parser():
     parser.add_argument('--diff_weights', type=float, default=0.95)
 
     # LSTM args
-    parser.add_argument('--model', type=str, default='LSTM_FC')
+    parser.add_argument('--model', type=str, default='SSLSTM')
     parser.add_argument('--k', type=int, default=15)
     parser.add_argument('--save_k_results', type=bool, default=False)
 
@@ -94,6 +95,16 @@ def get_parser():
     parser.add_argument('--init_position', type=float, default=20)
     parser.add_argument('--future_interaction', type=int, default=True)
     parser.add_argument('--calculate_social', type=int, default=False)
+
+    # SR args
+    parser.add_argument('--gird_shape_x', type=int, default=700)
+    parser.add_argument('--gird_shape_y', type=int, default=700)
+    parser.add_argument('--gird_length', type=float, default=0.1)   # 网格的真实长度
+    parser.add_argument('--avoid_size', type=int, default=15)   # 主动避让的半径网格尺寸
+    parser.add_argument('--interest_size', type=int, default=20)   # 原本感兴趣的预测区域
+    # parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
+    parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
+    parser.add_argument('--max_refine', type=float, default=0.8)   # 最大修正尺寸
     return parser
 
 
@@ -113,9 +124,9 @@ def main():
         inputs = Prepare_Train_Data(args).train_info
     else:
         inputs = 0
-        args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
-        args_load.load = args.load
-        args = args_load
+        # args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
+        # args_load.load = args.load
+        # args = args_load
     
     log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
     args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)

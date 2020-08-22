@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:11
-@LastEditors: Conghao Wong
-@LastEditTime: 2020-06-22 12:33:08
+LastEditors: Conghao Wong
+LastEditTime: 2020-08-16 00:06:03
 @Description: helpmethods
 '''
 
@@ -90,6 +90,13 @@ def predict_linear_for_person(position, time_pred, different_weights=0.95):
     y_p, _ = __predict_linear(t, y, t_p, diff_weights=different_weights)
 
     return np.stack([x_p, y_p]).T
+
+
+def calculate_ADE_FDE_numpy(pred, GT):
+    all_loss = np.linalg.norm(pred - GT, ord=2, axis=1)
+    ade = np.mean(all_loss)
+    fde = all_loss[-1]
+    return ade, fde
 
 
 def draw_results(feature, result, all_traj='null', detail_save_path='null', whole_save_path='null', only_features=False):

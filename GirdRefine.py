@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-15 22:31:41
+LastEditTime: 2020-08-16 01:25:47
 @Description: file content
 '''
 
@@ -10,63 +10,33 @@ import argparse
 
 import cv2
 import numpy as np
-import tensorflow as tf
+
 from scipy import signal
-from tensorflow import keras
+
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from PrepareTrainData import Frame
+from PrepareTrainData import Agent_Part
 from helpmethods import predict_linear_for_person
+
 
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
-def get_parser():
-    parser = argparse.ArgumentParser(description='GirdRefinement')
-
-    # basic settings
-    parser.add_argument('--obs_frames', type=int, default=8)
-    parser.add_argument('--pred_frames', type=int, default=12)
-    
-    parser.add_argument('--gird_shape_x', type=int, default=700)
-    parser.add_argument('--gird_shape_y', type=int, default=700)
-    parser.add_argument('--gird_length', type=float, default=0.1)   # 网格的真实长度
-    parser.add_argument('--avoid_size', type=int, default=15)   # 主动避让的半径网格尺寸
-    parser.add_argument('--interest_size', type=int, default=20)   # 原本感兴趣的预测区域
-    # parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
-    parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
-    parser.add_argument('--max_refine', type=float, default=0.8)   # 最大修正尺寸
-    parser.add_argument('--savefig', type=int, default=False)
-
-    return parser
-
 class GirdMap():
-    def __init__(self, args, frame_data:Frame):
+    def __init__(self, args, agent:Agent_Part, save=False, save_path='null'):
         self.args = args
-        self.frame_data = frame_data
-
-        self.pred_original = frame_data.get_pred_traj()
-        self.person_number = frame_data.vaild_person_number
-        self.person_list = frame_data.vaild_person_index
+        self.agent = agent
+        self.pred_original = agent.get_pred_traj()
+        self.pred_neighbor = agent.get_pred_traj_neighbor()
         
         self.add_mask = cv2.imread('./mask_circle.png')[:, :, 0]
         # self.add_mask = cv2.imread('./mask_square.png')[:, :, 0]
 
-        # self.add_mask = np.zeros([101, 101])
-        # for i in range(101):
-        #     for j in range(101):
-        #         # self.add_mask[i, j] = ((i-50)**2 + (j-50)**2)**0.5
-        #         self.add_mask[i, j] = abs(i-50) + abs(j-50)
-        
-        # self.add_mask = np.zeros([101, 101]) * (self.add_mask > 50) + (50 - self.add_mask) * (self.add_mask <= 50)
+        self.gird_map = self.create_gird_map(save=save, save_path=save_path)      
 
-        self.gird_map = []       
-        for index in range(self.person_number):
-            self.gird_map.append(self.create_gird_map(index, self.person_number, save=True))
-        # print('!')
     
     def __calculate_gird(self, input_coor):
         new_coor = [
@@ -78,27 +48,23 @@ class GirdMap():
     def real2gird(self, real_coor):
         return np.stack([self.__calculate_gird(coor) for coor in real_coor])
 
-    def create_gird_map(self, current_person_index, person_number, save=False):
+    def create_gird_map(self, save=False, save_path='null'):
         mmap = np.zeros([self.args.gird_shape_x, self.args.gird_shape_y])
-        pred_current = self.pred_original[current_person_index]
-        pred_current_gird = self.real2gird(pred_current)
-
-        other_person_list = [i for i in range(person_number) if not i == current_person_index]
+        pred_current_gird = self.real2gird(self.pred_original)
 
         avoid_person_list = []
         avoid_person_cosine = []
         interest_person_list = []
         interest_person_cosine = []
         pred_gird = dict()
-        for other_person_index in other_person_list:
-            pred = self.pred_original[other_person_index]
-            pred_gird[str(other_person_index)] = self.real2gird(pred)
-            cosine = calculate_cosine(pred_current[-1] - pred_current[0], pred[-1] - pred[0])
+        for index, pred in enumerate(self.pred_neighbor):
+            pred_gird[str(index)] = self.real2gird(pred)
+            cosine = calculate_cosine(self.pred_original[-1] - self.pred_original[0], pred[-1] - pred[0])
             if cosine >= 0:
-                interest_person_list.append(str(other_person_index))
+                interest_person_list.append(str(index))
                 interest_person_cosine.append(cosine)
             else:
-                avoid_person_list.append(str(other_person_index))
+                avoid_person_list.append(str(index))
                 avoid_person_cosine.append(cosine)
             
         
@@ -113,6 +79,7 @@ class GirdMap():
             add_size=self.args.interest_size,
         )
         
+        # 防止碰撞
         for index, cosine in zip(avoid_person_list, avoid_person_cosine):
             mmap = self.add_to_gird(
                 pred_gird[index], 
@@ -121,6 +88,7 @@ class GirdMap():
                 add_size=self.args.avoid_size,
             )
 
+        # 同行者吸引
         for index, cosine in zip(interest_person_list, interest_person_cosine):
             mmap = self.add_to_gird(
                 pred_gird[index], 
@@ -132,7 +100,7 @@ class GirdMap():
         mmap_new = mmap # self.add_to_gird(pred_current_gird, mmap, coe=np.ones([self.args.pred_frames]))
         if save:
             cv2.imwrite(
-                './gird_{}.png'.format(current_person_index),
+                save_path,
                 127*(mmap_new/mmap_new.max()+1)
             )
         return mmap
@@ -197,11 +165,11 @@ class GirdMap():
             index1, index2, percent = self.find_linear_neighbor(fix_index)
             linear_fix = self.linear_interp(input_traj_expand[index1], input_traj_expand[index2], percent)
         
-        return linear_fix
-            
+        return linear_fix 
 
-    def refine_model(self, input_traj, gird_map, epochs=30):
-        prev_result = input_traj
+    def refine_model(self, epochs=30):
+        prev_result = self.pred_original
+        gird_map = self.gird_map
         
         # 原预测静止不动的不需要微调
         if calculate_length(prev_result[-1] - prev_result[1]) <= 1.0:
@@ -225,18 +193,15 @@ class GirdMap():
                 result.T[1] - y_bias,
             ]).T
 
-        delta = np.minimum(prev_result - input_traj, self.args.max_refine)
+        delta = np.minimum(prev_result - self.pred_original, self.args.max_refine)
         coe = 0.7 * np.stack([i/(self.args.pred_frames-1) for i in range(self.args.pred_frames)]).reshape([-1, 1])
     
         # print('!')
         # np.savetxt('res.txt', prev_result)
         # np.savetxt('inp.txt', input_traj)
-        social_fix = input_traj + coe * delta
-        length_fix = self.length_refine(social_fix, input_traj)
+        social_fix = self.pred_original + coe * delta
+        length_fix = self.length_refine(social_fix, self.pred_original)
         return length_fix
-
-        
-
 
 
 def calculate_cosine(vec1, vec2):
@@ -256,55 +221,26 @@ def calculate_length(vec1):
     return length1
 
 
-def SocialRefine(pred_path):
-    args = get_parser().parse_args()
-    frame_data = np.load(pred_path, allow_pickle=True)
-    savefig = args.savefig
-    
-    ade_gain = []
-    timebar = tqdm(range(len(frame_data)))
-    # timebar = tqdm(range(13, 14))
-    for frame_index, frame in enumerate(timebar):
-        a = GirdMap(args, frame_data[frame])
-
-        traj_refine = []
-        for index in range(a.person_number):
-            traj_refine.append(a.refine_model(a.pred_original[index], a.gird_map[index], epochs=20))
-
-        frame_data[frame_index].pred_fix = traj_refine
-        
-        pred_old = frame_data[frame_index].pred
-        gt = frame_data[frame_index].traj_gt
-
-        ade_old = []
-        ade_new = []
-        for pred_old_c, pred_new_c, gt_c in zip(pred_old, traj_refine, gt):
-            ade_old.append(np.mean(np.linalg.norm(pred_old_c - gt_c, axis=1)))
-            ade_new.append(np.mean(np.linalg.norm(pred_new_c - gt_c, axis=1)))
-        
-        ade_old = np.mean(np.stack(ade_old))
-        ade_new = np.mean(np.stack(ade_new))
-        timebar.set_postfix({
-            'ade_old':ade_old,
-            'ade_fix':ade_new,
-            'gain':ade_new-ade_old,
-        })
-        ade_gain.append(ade_new-ade_old)
-
-        if savefig:
-            plt.figure(figsize=(20, 20))
-            for res, ori, gt in zip(traj_refine, a.pred_original, frame_data[frame].traj_gt): 
-                plt.plot(ori.T[0], ori.T[1], '--^')
-                plt.plot(res.T[0], res.T[1], '-*')
-                plt.plot(gt.T[0], gt.T[1], '-o')
-                
-            plt.axis('scaled')
-            plt.title('ade_old={}, ade_fix={}'.format(ade_old, ade_new))
-            plt.savefig('./sr{}.png'.format(frame))
-            plt.close()
-
-    print(np.mean(np.stack(ade_gain)))
+def SocialRefine_one(agent, args, epochs=10, save=False, save_path='null'):
+    a = GirdMap(args, agent, save=save, save_path=save_path)
+    traj_refine = a.refine_model(epochs=epochs)
+    return traj_refine
 
 
 if __name__ == "__main__":
-    SocialRefine('./logs/20200815-222809NAME0-SSLSTM0/pred.npy')
+    from models import create_loss_dict
+    args = get_parser().parse_args()
+    all_agents = np.load('./logs/20200815-231015NAME0-SSLSTM0/pred.npy', allow_pickle=True)
+    all_loss = []
+    for index, agent in enumerate(tqdm(all_agents)):
+        re = SocialRefine_one(args, agent)
+        agent.write_pred_sr(re)
+        agent.draw_results('./SR', '{}.png'.format(index), draw_neighbors=True)
+        all_loss.append(agent.calculate_loss())
+    
+    loss = np.mean(np.stack(all_loss), axis=0)    
+    print('test_loss={}'.format(create_loss_dict(loss, ['ADE', 'FDE'])))
+    for l in loss:
+        print(loss, end='\t')
+    print('\nTest done.')
+    print('!')

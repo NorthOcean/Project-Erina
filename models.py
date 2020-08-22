@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-15 22:27:45
+LastEditTime: 2020-08-21 23:47:41
 @Description: classes and methods of training model
 '''
 import os
@@ -19,7 +19,9 @@ from helpmethods import(
     list2array,
     dir_check,
     draw_test_results,
+    calculate_ADE_FDE_numpy,
 )
+from GirdRefine import SocialRefine_one
 
 class Base_Model():
     """
@@ -50,9 +52,13 @@ class Base_Model():
             self.model.summary()
         
             if self.args.test:
-                self.agents_test = self.test(self.agents_test, test_on_neighbors=False)
+                self.agents_test = self.test(
+                    self.agents_test, 
+                    test_on_neighbors=False,
+                    SR=False,
+                    draw=False)
                 np.save(os.path.join(self.log_dir, 'pred.npy'), self.agents_test)
-                self.draw_pred_results(self.agents_test)
+                # self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
         self.obs_frames = self.args.obs_frames
@@ -73,8 +79,9 @@ class Base_Model():
         model = keras.models.load_model(base_path.format('.h5'))
         # agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         
-        # test options
+        # test_options
         agents_test = np.load('./test_data_seed10/test{}.npy'.format(self.args.test_set), allow_pickle=True)
+        self.args_old = self.args
         args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
         return model, agents_test, args
     
@@ -97,12 +104,9 @@ class Base_Model():
         gt = []
         agent_index = []
         for agent_index_current, agent in enumerate(tqdm(input_agents)):
-            for traj in agent.get_train_traj():
-                input_trajs.append(traj)
-
-            for traj_index, traj in enumerate(agent.get_gt_traj()):
-                gt.append(traj)
-                agent_index.append([agent_index_current, traj_index])
+            input_trajs.append(agent.get_train_traj())
+            gt.append(agent.get_gt_traj())
+            agent_index.append(agent_index_current)
 
         input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
         gt = tf.cast(tf.stack(gt), tf.float32)
@@ -237,23 +241,34 @@ class Base_Model():
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
     
-    def test(self, agents_test, test_on_neighbors=False):
+    def test(self, agents_test, test_on_neighbors=False, SR=True, draw=True):
         all_loss = []
         loss_name_list = ['ADE', 'FDE']
         loss_function = calculate_ADE_FDE_numpy
 
         for index in tqdm(range(len(agents_test)), desc='Testing...'):
-            obs = agents_test[index].get_train_traj()
+            obs = agents_test[index].get_train_traj().reshape([1, agents_test[index].obs_length, 2])
+
+            # if not index == 87:
+            #     continue
+            
             if test_on_neighbors and agents_test[index].neighbor_number > 0:
                 obs_neighbor = (np.stack(agents_test[index].get_neighbor_traj())).reshape([agents_test[index].neighbor_number, agents_test[index].obs_length, 2])
                 obs = np.concatenate([obs, obs_neighbor], axis=0)
 
             pred = self.forward(obs)
             agents_test[index].write_pred(pred[0])
-            all_loss.append(agents_test[index].calculate_loss(loss_function))
-            
             if test_on_neighbors:
                 agents_test[index].write_pred_neighbor(pred[1:])
+
+            if SR:
+                agents_test[index].write_pred_sr(SocialRefine_one(agents_test[index], self.args_old))
+            
+            if draw:
+                agents_test[index].draw_results(self.log_dir, '{}.png'.format(index), draw_neighbors=test_on_neighbors)
+
+            all_loss.append(agents_test[index].calculate_loss())
+            
         
         loss = np.mean(np.stack(all_loss), axis=0)
             
@@ -376,6 +391,48 @@ class SS_LSTM(Base_Model):
         concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
         feature_fc1 = keras.layers.Dense(64)(concat_feature)
         feature_flatten = tf.reshape(feature_fc1, [-1, self.obs_frames * 64])
+        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
+        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
+        output5 = keras.layers.Dense(2)(feature_reshape)
+        output5 = output5 + start_point
+        lstm = keras.Model(inputs=positions, outputs=[output5])
+
+        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
+
+    def get_feature(self, inputs):
+        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
+        return submodel(inputs)
+
+
+class SS_LSTM_selfatt(Base_Model):
+    """
+    `S`tate and `S`equence `LSTM`
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+
+    def create_model(self):
+        positions = keras.layers.Input(shape=[self.obs_frames, 2])
+        start_point = tf.reshape(positions[:, -1, :], [-1, 1, 2])
+        
+        positions_n = positions - start_point
+        positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
+        positions_embadding_state = keras.layers.Dense(64)(positions)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
+
+        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
+        X = keras.layers.Dense(64)(concat_feature)    # shape = [batch, T_obs, 64]
+
+        XT = tf.transpose(X, [0, 2, 1]) # shape = [batch, 64, T_obs]
+        simi = tf.matmul(X, XT)   # shape = [batch, T_obs, T_obs]
+        # att = keras.layers.Softmax(axis=-1)(simi/8.0)
+        att = simi/8.0
+        feature_att = tf.matmul(att, X)
+        
+        feature_flatten = tf.reshape(feature_att, [-1, self.obs_frames * 64])
         feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
         output5 = keras.layers.Dense(2)(feature_reshape)
@@ -745,13 +802,6 @@ def calculate_FDE(pred, GT):
     pred = tf.cast(pred, tf.float32)
     GT = tf.cast(GT, tf.float32)
     return tf.reduce_mean(tf.linalg.norm(pred[:, -1, :] - GT[:, -1, :], ord=2, axis=1))
-
-
-def calculate_ADE_FDE_numpy(pred, GT):
-    all_loss = np.linalg.norm(pred - GT, ord=2, axis=1)
-    ade = np.mean(all_loss)
-    fde = all_loss[-1]
-    return ade, fde
 
 
 def get_model_outputs(model, inputs, input_layer=0, output_layer=1):
