@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-22 18:20:54
+LastEditTime: 2020-08-23 00:30:41
 @Description: file content
 '''
 import os
@@ -82,7 +82,7 @@ class Prepare_Train_Data():
         elif self.args.train_type == 'all':
             train_agents = []
             for dm in data_managers_train:
-                train_agents += self.sample_data(dm, person_index='all')
+                train_agents += self.sample_data(dm, person_index='all', random_sample=0.5)
 
             if self.args.reverse:
                 for dm in data_managers_train:
@@ -227,14 +227,22 @@ class Prepare_Train_Data():
 
         return video_neighbor_list, video_matrix, frame_list
 
-    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, desc='Calculate agent data', use_time_bar=True):
+    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, desc='Calculate agent data', use_time_bar=True, random_sample=False):
         """
         Sample training data from data_manager
         return: a list of Agent_Part
         """
         agents = []
         if person_index == 'all':
-            person_index = range(data_manager.person_number)
+            if random_sample > 0:
+                if USE_SEED:
+                    random.seed(SEED)
+                person_index = random.sample(
+                    [i for i in range(data_manager.person_number)], 
+                    int(data_manager.person_number * random_sample),
+                )
+            else:
+                person_index = range(data_manager.person_number)
 
         if use_time_bar:
             itera = tqdm(person_index, desc=desc)

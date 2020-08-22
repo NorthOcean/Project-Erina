@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-21 23:47:41
+LastEditTime: 2020-08-22 19:53:27
 @Description: classes and methods of training model
 '''
 import os
@@ -112,13 +112,41 @@ class Base_Model():
         gt = tf.cast(tf.stack(gt), tf.float32)
         return [input_trajs, gt], agent_index
 
-    def forward_train(self, train_tensor, index):
-        input_trajs = train_tensor[0][index[0]:index[1]]
-        gt = train_tensor[1][index[0]:index[1]]
+    def get_train_data(self, train_tensor=0, batch_size=0, init=False):
+        if init:
+            self.batch_start = 0
+            self.train_length = len(train_tensor[0])
+            return self.train_length
+        
+        start = self.batch_start
+        end = (self.batch_start + batch_size) % self.train_length
+        # 每次最多取 1 epoch
+        if end < start:
+            train_inputs = tf.concat([
+                train_tensor[0][start:],
+                train_tensor[0][:end],
+            ], axis=0)
+            gt = tf.concat([
+                train_tensor[1][start:],
+                train_tensor[1][:end],
+            ], axis=0)
+
+        elif start + batch_size < self.train_length:
+            train_inputs = train_tensor[0][start:end]
+            gt = train_tensor[1][start:end]
+
+        else:
+            train_inputs = train_tensor[0]
+            gt = train_tensor[1]
+
+        self.batch_start = end
+        return train_inputs, gt, len(train_inputs)
+
+    def forward_train(self, input_trajs):
         output = self.model(input_trajs)
         if not type(output) == list:
             output = [output]
-        return output, gt, input_trajs
+        return output, input_trajs
 
     def forward(self, inputs):
         """This method is a direct IO"""
@@ -173,41 +201,48 @@ class Base_Model():
         print('\nPrepare training data...')
         self.train_tensor, self.train_index = self.prepare_train_data(self.agents_train)
         self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
+
+        train_length = self.get_train_data(self.train_tensor, init=True)
         
-        print('\nStart Training:')
         test_results = []
         test_loss_dict = dict()
         test_loss_dict['-'] = 0
-        time_bar = tqdm(range(self.args.epochs))
-        for epoch in time_bar:
+
+        batch_number = 1 + (train_length * self.args.epochs)// self.args.batch_size
+        print(batch_number, train_length, self.args.epochs, self.args.batch_size)
+        
+        time_bar = tqdm(range(batch_number), desc='Training')
+        for batch in time_bar:
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
             loss_list = []
-            for batch in range(batch_number):
-                batch_start = batch * self.args.batch_size
-                batch_end = tf.minimum((batch + 1) * self.args.batch_size, self.train_number)
-
-                with tf.GradientTape() as tape:
-                    model_output_current, gt_current, obs_current = self.forward_train(self.train_tensor, [batch_start, batch_end])
-                    loss_ADE, loss_list_current = self.loss(model_output_current, gt_current, obs=obs_current)
-                    ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
-
-                ADE += loss_ADE
-                grads = tape.gradient(ADE_move_average, self.model.trainable_variables)
-                self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-
-                loss_list.append(loss_list_current)
             
+            obs_current, gt_current, _ = self.get_train_data(self.train_tensor, self.args.batch_size)
+
+            with tf.GradientTape() as tape:
+                model_output_current, _ = self.forward_train(obs_current)
+                loss_ADE, loss_list_current = self.loss(model_output_current, gt_current, obs=obs_current)
+                ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
+
+            ADE += loss_ADE
+            grads = tape.gradient(ADE_move_average, self.model.trainable_variables)
+            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+
+            loss_list.append(loss_list_current)
             loss_list = tf.reduce_mean(tf.stack(loss_list), axis=0).numpy()
+
+            epoch = (batch * self.args.batch_size) // train_length
 
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
                 model_output, loss_eval, _, _ = self.test_step(self.test_tensor, self.agents_test, self.test_index, write_result=False)
                 test_results.append(loss_eval)
                 test_loss_dict = create_loss_dict(loss_eval, self.loss_eval_namelist)
             
-            train_loss_dict = create_loss_dict(loss_list, self.loss_namelist)
-            loss_dict = dict(train_loss_dict, **test_loss_dict) # 拼接字典
-            time_bar.set_postfix(loss_dict)
+            if epoch % 2 == 0:
+                train_loss_dict = create_loss_dict(loss_list, self.loss_namelist)
+                loss_dict = dict(train_loss_dict, **test_loss_dict) # 拼接字典
+                time_bar.set_postfix(loss_dict)
+                
 
             with summary_writer.as_default():
                 for loss_name in loss_dict:
@@ -311,67 +346,6 @@ class LSTM_FC(Base_Model):
         return lstm, lstm_optimizer
 
 
-class LSTM_FC_hardATT(Base_Model):
-    """
-    LSTM based model with full attention layer.
-    """
-    def __init__(self, train_info, args):
-        self.frame_index = tf.constant(args.frame)
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use N frames of input
-        positions_embadding = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64)(positions_embadding)
-        output3 = keras.layers.Dense(self.pred_frames * 16)(traj_feature)
-        output4 = keras.layers.Reshape([self.pred_frames, 16])(output3)
-        output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=positions, outputs=[output5], name='LSTM_FC')
-
-        lstm.build(input_shape=[None, len(self.args.frame), 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-    def forward_train(self, train_tensor, index):
-        input_trajs = train_tensor[0][index[0]:index[1]]
-        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
-        gt = train_tensor[1][index[0]:index[1]]
-        output = self.model(input_trajs)
-        if not type(output) == list:
-            output = [output]
-        return output, gt, input_trajs
-
-    def forward_test(self, test_tensor):
-        input_trajs = test_tensor[0]
-        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
-        gt = test_tensor[1]
-        output = self.model(input_trajs)
-        if not type(output) == list:
-            output = [output]
-        return output, gt, input_trajs
-
-
-class LSTM_FC_develop_beta(Base_Model):
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64)(positions_embadding)
-        concat_feature = tf.concat([traj_feature, positions_embadding[:, -1, :]], axis=-1)
-        output3 = keras.layers.Dense(self.pred_frames * 32)(concat_feature)
-        output4 = keras.layers.Reshape([self.pred_frames, 32])(output3)
-        output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=positions, outputs=[output5])
-
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-
 class SS_LSTM(Base_Model):
     """
     `S`tate and `S`equence `LSTM`
@@ -407,7 +381,7 @@ class SS_LSTM(Base_Model):
         return submodel(inputs)
 
 
-class SS_LSTM_selfatt(Base_Model):
+class SS_LSTM_nostate(Base_Model):
     """
     `S`tate and `S`equence `LSTM`
     """
@@ -420,19 +394,11 @@ class SS_LSTM_selfatt(Base_Model):
         
         positions_n = positions - start_point
         positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
-        positions_embadding_state = keras.layers.Dense(64)(positions)
+      
         traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
 
-        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
-        X = keras.layers.Dense(64)(concat_feature)    # shape = [batch, T_obs, 64]
-
-        XT = tf.transpose(X, [0, 2, 1]) # shape = [batch, 64, T_obs]
-        simi = tf.matmul(X, XT)   # shape = [batch, T_obs, T_obs]
-        # att = keras.layers.Softmax(axis=-1)(simi/8.0)
-        att = simi/8.0
-        feature_att = tf.matmul(att, X)
         
-        feature_flatten = tf.reshape(feature_att, [-1, self.obs_frames * 64])
+        feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
         feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
         output5 = keras.layers.Dense(2)(feature_reshape)
@@ -448,31 +414,6 @@ class SS_LSTM_selfatt(Base_Model):
         submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
         return submodel(inputs)
 
-
-class SS_LSTM_noSTATE(Base_Model):
-    """
-    `S`tate and `S`equence `LSTM`
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding_lstm = keras.layers.Dense(64)(positions)
-        # positions_embadding_state = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
-
-        # concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
-        # feature_fc1 = keras.layers.Dense(64)(traj_feature)
-        feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
-        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
-        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
-        output5 = keras.layers.Dense(2)(feature_reshape)
-        lstm = keras.Model(inputs=positions, outputs=[output5])
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
 
 
 class SS_LSTM_lite(Base_Model):
@@ -544,150 +485,6 @@ class SS_LSTM_hardATT(Base_Model):
         if not type(output) == list:
             output = [output]
         return output, gt, input_trajs
-
-
-class LSTMcell(Base_Model):
-    """
-    Recurrent cell of LSTM
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-        
-    def create_model(self):
-        feature_dim = 64
-        embadding = keras.layers.Dense(feature_dim)
-        cell = keras.layers.LSTMCell(feature_dim)
-        decoder = keras.layers.Dense(2)
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-
-        h = tf.transpose(tf.stack([tf.reduce_sum(tf.zeros_like(positions), axis=[1, 2]) for _ in range(feature_dim)]), [1, 0])
-        c = tf.zeros_like(h)
-        
-        state_init = [h, c]
-        for frame in range(self.obs_frames):
-            input_current = positions[:, frame, :]
-            input_current_embadding = embadding(input_current)
-            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
-            output_current = decoder(h_new)
-            [h, c] = [h_new, c_new]
-        
-        all_output = []
-        for frame in range(self.pred_frames):
-            input_current_embadding = embadding(output_current)
-            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
-            output_current = decoder(h_new)
-            [h, c] = [h_new, c_new]
-
-            all_output.append(output_current)
-        
-        output = tf.transpose(tf.stack(all_output), [1, 0, 2])
-
-        lstm = keras.Model(inputs=positions, outputs=[output])
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-
-"""
-class LSTM_ED(Base_Model):
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-        self.fc_size = 16
-        self.feature_layer = 3 + 1  # Input is also a layer
-        self.output_layer = 6 + 1
-
-    def create_model(self):
-        inputs = keras.Input(shape=[self.obs_frames, 2])
-        output0 = keras.layers.Dense(64, activation=tf.nn.relu)(inputs)
-        output1 = keras.layers.Dropout(self.args.dropout)(output0)
-        output2 = keras.layers.LSTM(128)(output1)                        # 2
-        output3 = keras.layers.Dense(self.pred_frames * self.fc_size, activation=tf.nn.relu)(output2)      # 3
-        output4 = keras.layers.Reshape([self.pred_frames, self.fc_size])(output3)   # 4
-        output5 = keras.layers.LSTM(64, return_sequences=True)(output4)   # 5
-        output6 = keras.layers.Dense(2)(output5)
-
-        position_output = output6
-        feature_output = output3
-
-        ae = keras.Model(inputs=[inputs], outputs=[position_output, feature_output])
-        ae.build(input_shape=[None, self.obs_frames, 2])
-        ae_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        print(ae.summary())
-        return ae, ae_optimizer
-    
-    def forward_test(self, inputs_test, groundtruth_test, agents_test='null'):
-        batch = inputs_test.shape[0]
-        self.noise_mean = 0.0
-        self.noise_sigma = 0.1
-
-        test_results = []
-        for re in range(self.args.k):
-            # print('Repeat step {}/{}...\t'.format(re, self.args.k), end='\r')
-            noise = np.random.normal(self.noise_mean, self.noise_sigma, size=[batch, self.pred_frames * self.fc_size])
-            features = get_model_outputs(self.model, inputs_test, input_layer=0, output_layer=self.feature_layer)
-            position_output = get_model_outputs(self.model, features + noise, input_layer=self.feature_layer+1, output_layer=self.output_layer)
-            test_results.append(position_output.numpy())
-        print('Generate done.')
-
-        self.loss_eval_namelist = ['ADE', 'FDE', 'mADE', 'mFDE', 'sA', 'sF', 'GP_ADE', 'GP_FDE']
-        test_results = np.transpose(list2array(test_results), axes=[1, 0, 2, 3])
-        return [tf.cast(test_results, tf.float32)]
-    
-    def loss(self, model_output, gt, obs='null'):
-        self.loss_namelist = ['ADE_t', 'smooth_t']
-        loss_ADE = calculate_ADE(model_output[0], gt)
-        loss_smoothness = smooth_loss(obs, model_output[0], step=1)
-        loss_list = tf.stack([loss_ADE, loss_smoothness])
-        return 1.0 * loss_ADE + 0.0 * loss_smoothness, loss_list
-    
-    def loss_eval(self, model_output, gt, obs='null'):
-        self.loss_eval_namelist = ['ADE', 'FDE', 'mADE', 'mFDE', 'sA', 'sF', 'GP_ADE', 'GP_FDE', 'smooth']
-        return self.choose_best_path(model_output[0], gt)[1]
-    
-    def choose_best_path(self, positions, groundtruth, choose='best'):
-        positions = tf.cast(positions, tf.float32)
-        groundtruth = tf.cast(groundtruth, tf.float32)
-        positions = tf.transpose(positions, [1, 0, 2, 3])
-
-        all_ADE = tf.reduce_mean(tf.linalg.norm(positions - groundtruth, ord=2, axis=3), axis=2)
-        all_FDE = tf.linalg.norm(positions[:, :, -1, :] - groundtruth[:, -1, :], ord=2, axis=2)
-
-        mean_traj = tf.reduce_mean(positions, axis=0)
-        GP_ADE = tf.reduce_mean(tf.linalg.norm(mean_traj - groundtruth, ord=2, axis=2), axis=1)
-        GP_FDE = tf.linalg.norm(mean_traj[:, -1, :] - groundtruth[:, -1, :], ord=2, axis=1)
-
-        mean_ADE = tf.reduce_mean(all_ADE, axis=0)
-        mean_FDE = tf.reduce_mean(all_FDE, axis=0)
-
-        s_ADE = tf.math.reduce_std(all_ADE, axis=0)
-        s_FDE = tf.math.reduce_std(all_FDE, axis=0)
-
-        minADE_index = tf.cast(tf.argmin(all_ADE, axis=0), tf.int32)
-        minADE_index = tf.transpose(tf.stack([
-            tf.stack([i for i in range(minADE_index.shape[0])]),
-            minADE_index,
-        ]))
-        positions = tf.transpose(positions, [1, 0, 2, 3])
-        traj = tf.gather_nd(positions, minADE_index)
-        ADE = tf.gather_nd(tf.transpose(all_ADE), minADE_index)
-        FDE = tf.gather_nd(tf.transpose(all_FDE), minADE_index)
-
-        result = traj
-        ADE_FDE = tf.stack([
-            ADE, FDE, mean_ADE, mean_FDE, s_ADE, s_FDE, GP_ADE, GP_FDE
-        ])
-        ADE_FDE = tf.reduce_mean(ADE_FDE, axis=1)
-
-        if self.args.save_k_results:
-            save_format = os.path.join(self.args.log_dir, '{}.npy')
-            np.save(save_format.format('best'), result)
-            np.save(save_format.format('all'), positions)
-            np.save(save_format.format('gt'), groundtruth)
-            np.save(save_format.format('mean'), mean_traj)
-
-        return result, ADE_FDE.numpy()
-"""
 
 
 class Linear(Base_Model):

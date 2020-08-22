@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-21 22:58:16
+LastEditTime: 2020-08-22 19:54:51
 @Description: main of Erina
 '''
 import argparse
@@ -19,13 +19,8 @@ from helpmethods import dir_check
 from models import (
     LSTM_FC,
     Linear,
-    LSTMcell,
     SS_LSTM,
-    LSTM_FC_hardATT,
-    SS_LSTM_hardATT,
-    SS_LSTM_lite,
-    SS_LSTM_noSTATE,
-    SS_LSTM_selfatt,
+    SS_LSTM_nostate,
 )
 
 from develop_models import (
@@ -50,7 +45,7 @@ def get_parser():
     parser.add_argument('--gpu', type=int, default=2)
 
     # training data settings
-    parser.add_argument('--train_type', type=str, default='one')        
+    parser.add_argument('--train_type', type=str, default='all')        
     # 'one': 使用一个数据集按照分割训练集训练
     # 'all': 使用除测试外的所有数据集训练
     parser.add_argument('--train_base', type=str, default='agent')
@@ -132,29 +127,15 @@ def main():
     args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
     gpu_config(args)
 
-    if args.model == 'LSTM-ED':
-        model = LSTM_ED
-    elif args.model == 'LSTM_FC':
+    
+    if args.model == 'LSTM_FC':
         model = LSTM_FC
     elif args.model == 'Linear':
         model = Linear
-    elif args.model == 'cycle':
-        model = FC_cycle
-    elif args.model == 'LSTMcell':
-        model = LSTMcell
     elif args.model == 'SSLSTM':
         model = SS_LSTM
-    elif args.model == 'SSLSTMhard':
-        model = SS_LSTM_hardATT
-    elif args.model == 'SSLSTMlite':
-        model = SS_LSTM_lite
-    elif args.model == 'SSLSTMNOSTATE':
-        model = SS_LSTM_noSTATE
-        args.normalization = True
-    elif args.model == 'test':
-        model = LSTM_FC_hardATT
-    elif args.model == 'sscycle':
-        model = SS_cycle
+    elif args.model == 'SSLSTMnostate':
+        model = SS_LSTM_nostate
 
     model(train_info=inputs, args=args).run_commands()
 
