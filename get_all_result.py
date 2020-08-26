@@ -2,13 +2,20 @@
 @Author: Conghao Wong
 @Date: 1970-01-01 08:00:00
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-23 00:35:18
+LastEditTime: 2020-08-23 19:54:26
 @Description: file content
 '''
 import numpy as np
 import os
+import argparse
 
-model_name = 'ALL200NoReverseHalfSample'
+def get_parser():
+    parser = argparse.ArgumentParser(description='SortOutputs')
+    parser.add_argument('--model_name', type=str, default='model')
+    return parser
+
+args = get_parser().parse_args()
+model_name = args.model_name
 
 class Result():
     def __init__(self, test_set):
@@ -23,7 +30,7 @@ class Result():
             self.path = f.readline()
 
 
-print(model_name+'&')
+print(model_name + ' & ')
 all_data = []
 ade = []
 fde = []
@@ -42,7 +49,7 @@ for dataset in [0, 1, 2, 3, 4]:
 
 print('{:.2f}/{:.2f} \\\\'.format(np.mean(np.stack(ade)), np.mean(np.stack(fde))))
 
-with open('{}.csv'.format(model_name), 'w+') as f:
+with open('./results/{}.csv'.format(model_name), 'w+') as f:
     f.writelines(all_data)
     
     

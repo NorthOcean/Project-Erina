@@ -2,22 +2,54 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-23 00:30:41
+LastEditTime: 2020-08-26 00:48:11
 @Description: file content
 '''
 import os
 import random
-USE_SEED = True
-SEED = 10
+import cv2
 
+import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from helpmethods import dir_check, list2array, predict_linear_for_person, calculate_ADE_FDE_numpy
+from sceneFeature import TrajGridMap
+from helpmethods import (calculate_ADE_FDE_numpy, dir_check, list2array,
+                         predict_linear_for_person)
 
-import matplotlib.pyplot as plt
+USE_SEED = True
+SEED = 10
+
+
+def prepare_rotate_matrix(min_angel=1, save_path='./rotate_matrix.npy', load=False):
+    need_to_re_calculate = False
+    if os.path.exists(save_path):
+        rotate_matrix = np.load(save_path)
+        if not rotate_matrix.shape[0] == 360//min_angel:
+            need_to_re_calculate = True
+    
+    if need_to_re_calculate:
+        angles = np.arange(0, 2 * np.pi, min_angel * np.pi / 180)
+        sin = np.sin(angles)
+        cos = np.cos(angles)
+
+        rotate_matrix = np.empty((angles.shape[0], 2, 2))
+        rotate_matrix[..., 0, 0] = cos
+        rotate_matrix[..., 0, 1] = -sin
+        rotate_matrix[..., 1, 0] = sin
+        rotate_matrix[..., 1, 1] = cos
+        np.save(save_path, rotate_matrix)
+    
+    if load:
+        return rotate_matrix
+
+rotate_matrix = prepare_rotate_matrix(min_angel=1, load=True)
+
 
 class Prepare_Train_Data():
+    """
+        管理所有数据集的训练与测试数据
+    """
     def __init__(self, args, save=True):
         self.args = args
         self.obs_frames = args.obs_frames
@@ -69,7 +101,7 @@ class Prepare_Train_Data():
             test_index = list(index - set(train_index))
             
             test_agents = self.sample_data(data_managers_train[0], test_index)
-            train_agents = []
+            train_agents = self.sample_data(data_managers_train[0], train_index)
             if self.args.reverse:
                 train_agents += self.sample_data(data_managers_train[0], train_index, reverse=True, desc='Preparing reverse data')
                 sample_time += 1
@@ -81,15 +113,50 @@ class Prepare_Train_Data():
         
         elif self.args.train_type == 'all':
             train_agents = []
-            for dm in data_managers_train:
-                train_agents += self.sample_data(dm, person_index='all', random_sample=0.5)
+            gridmaps = []
+            if len(self.args.train_percent) == 1:
+                train_percent = self.args.train_percent * np.ones([len(train_list)])
+            else:
+                train_percent = [self.args.train_percent[index] for index in train_list]
+                
+            for index, dm in enumerate(data_managers_train):
+                agents, gridmap = self.sample_data(
+                    dm, 
+                    person_index='all', 
+                    random_sample=train_percent[index], 
+                    return_gridmap=True
+                )
+                train_agents += agents
+                gridmaps.append(gridmap)
 
             if self.args.reverse:
-                for dm in data_managers_train:
-                    train_agents += self.sample_data(dm, person_index='all', reverse=True, use_time_bar=False)
+                for index, dm in enumerate(data_managers_train):
+                    train_agents += self.sample_data(
+                        dm, 
+                        person_index='all', 
+                        random_sample=train_percent[index], 
+                        reverse=True, 
+                        use_time_bar=False
+                    )
                 sample_time += 1
+
+            if self.args.rotate:
+                for angel in tqdm(range(360//self.args.rotate, 360, 360//self.args.rotate), desc='Prepare rotate data'):
+                    sample_time += 1
+                    for index, [dm, gm] in enumerate(zip(data_managers_train, gridmaps)):
+                        train_agents += self.sample_data(
+                            dm, 
+                            person_index='all', 
+                            random_sample=train_percent[index], 
+                            rotate=angel, 
+                            use_time_bar=False, 
+                            given_gridmap=gm
+                        )
                 
-            test_agents = self.sample_data(data_managers_test[0], person_index='all')
+            test_agents, test_gridmap = self.sample_data(data_managers_test[0], person_index='all', return_gridmap=True, random_sample=-0.2)
+            # np.save('./gridmaps/{}n20.npy'.format(self.args.test_set), test_gridmap.grid_map)
+            np.save('./gridmaps/agents{}n20.npy'.format(self.args.test_set), test_agents)
+            raise
         
         train_info = dict()
         # train_info['all_agents'] = all_data
@@ -98,6 +165,7 @@ class Prepare_Train_Data():
         train_info['train_number'] = len(train_agents)
         train_info['sample_time'] = sample_time  
 
+        # TrajGridMap(train_agents)
         # # test_options
         # np.save('./test_data_seed10/train{}.npy'.format(self.args.test_set), train_data)
         # np.save('./test_data_seed10/test{}.npy'.format(self.args.test_set), test_data)
@@ -227,22 +295,25 @@ class Prepare_Train_Data():
 
         return video_neighbor_list, video_matrix, frame_list
 
-    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, desc='Calculate agent data', use_time_bar=True, random_sample=False):
+    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, rotate=False, desc='Calculate agent data', use_time_bar=True, random_sample=False, given_gridmap=False, return_gridmap=False):
         """
         Sample training data from data_manager
         return: a list of Agent_Part
         """
         agents = []
         if person_index == 'all':
-            if random_sample > 0:
+            if random_sample > 0 and random_sample < 1:
                 if USE_SEED:
                     random.seed(SEED)
                 person_index = random.sample(
                     [i for i in range(data_manager.person_number)], 
                     int(data_manager.person_number * random_sample),
                 )
-            else:
+            elif random_sample == 0 or random_sample >= 1 or random_sample <= -1:
                 person_index = range(data_manager.person_number)
+
+            elif random_sample < 0 and random_sample > -1:
+                person_index = [i for i in range((data_manager.person_number * np.abs(random_sample)).astype(int))]
 
         if use_time_bar:
             itera = tqdm(person_index, desc=desc)
@@ -269,9 +340,24 @@ class Prepare_Train_Data():
                     normalization=self.args.normalization,
                     add_noise=add_noise,
                     reverse=reverse,
+                    rotate=rotate,
                 )     
                 agents.append(sample_agent)
-        return agents
+
+        if not given_gridmap:
+            traj_gridmap = TrajGridMap(agents)
+            for index in range(len(agents)):
+                agents[index].write_traj_map(traj_gridmap)  
+
+            if return_gridmap:
+                return agents, traj_gridmap
+            else:
+                return agents
+
+        else:
+            for index in range(len(agents)):
+                agents[index].write_traj_map(given_gridmap)   
+            return agents
     
     def get_agents(self, video_neighbor_list, video_matrix, frame_list):
         """
@@ -283,20 +369,11 @@ class Prepare_Train_Data():
         )
         return data_manager
 
-        agents = self.sample_data(data_manager)
-        original_sample_number = len(agents)
-
-        if self.args.reverse:
-            agents += self.sample_data(data_manager, reverse=True, desc='Preparing reverse data')
-
-        if self.args.add_noise:                
-            for repeat in tqdm(range(self.args.add_noise), desc='Preparing noise data'):
-                agents += self.sample_data(data_manager, add_noise=True, use_time_bar=False)
-
-        return agents, original_sample_number
-
 
 class DataManager():
+    """
+        管理一个数据集内的所有轨迹数据
+    """
     def __init__(self, video_neighbor_list, video_matrix, frame_list, init_position):
         self.video_neighbor_list = video_neighbor_list
         self.video_matrix = video_matrix
@@ -317,7 +394,7 @@ class DataManager():
             ))
         return agent_data
 
-    def get_trajectory(self, agent_index, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False):
+    def get_trajectory(self, agent_index, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):
         target_agent = self.agent_data[agent_index]
         frame_list = target_agent.frame_list
         neighbor_list = target_agent.video_neighbor_list[obs_frame-1].tolist()
@@ -325,7 +402,7 @@ class DataManager():
         neighbor_agents = [self.agent_data[nei] for nei in neighbor_list]
 
         return Agent_Part(
-            target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=future_interaction, calculate_social=calculate_social, normalization=normalization, add_noise=add_noise, reverse=reverse
+            target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=future_interaction, calculate_social=calculate_social, normalization=normalization, add_noise=add_noise, reverse=reverse, rotate=rotate
         )
         
 
@@ -341,7 +418,7 @@ class Agent():
 
 
 class Agent_Part():
-    def __init__(self, target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False):        
+    def __init__(self, target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):        
         # Trajectory info
         self.start_frame = start_frame
         self.obs_frame = obs_frame
@@ -350,6 +427,9 @@ class Agent_Part():
         self.total_frame = end_frame - start_frame
         self.frame_list = frame_list[start_frame:end_frame]
         self.vertual_agent = False
+        self.rotate = rotate
+        self.reverse = reverse
+        self.traj_map = 'null'
 
         # Trajectory
         self.traj = target_agent.traj[start_frame:end_frame]
@@ -360,6 +440,12 @@ class Agent_Part():
 
         elif reverse:
             self.traj = self.traj[::-1]
+            self.vertual_agent = True
+
+        elif rotate:    # rotate 为旋转角度
+            rotate_matrix_current = rotate_matrix[rotate, :, :]
+            self.traj_original = self.traj
+            self.traj = self.traj[0] + np.matmul(self.traj - self.traj[0], rotate_matrix_current)
             self.vertual_agent = True
             
         self.pred = 0
@@ -446,6 +532,9 @@ class Agent_Part():
     def get_pred_traj_neighbor(self):
         return self.neighbor_pred
 
+    def get_traj_map(self):
+        return self.traj_map
+
     def write_pred(self, pred):
         self.pred = pred
         self.pred_fix()
@@ -456,6 +545,36 @@ class Agent_Part():
 
     def write_pred_neighbor(self, pred):
         self.neighbor_pred = self.pred_fix_neighbor(pred)
+
+    def write_traj_map(self, gridmap:TrajGridMap):
+        full_map = gridmap.grid_map
+        half_size = 16  # half of map size, in grids
+        if not self.rotate:
+            center_pos = gridmap.real2grid(self.traj_train[-1])
+        else:
+            center_pos = gridmap.real2grid(self.traj_original[self.obs_length])
+            
+        original_map = cv2.resize(full_map[
+            np.maximum(center_pos[0]-2*half_size, 0):np.minimum(center_pos[0]+2*half_size, full_map.shape[0]), 
+            np.maximum(center_pos[1]-2*half_size, 0):np.minimum(center_pos[1]+2*half_size, full_map.shape[1]),
+        ], (4*half_size, 4*half_size))
+
+        final_map = original_map[half_size:3*half_size, half_size:3*half_size]
+        if self.reverse:
+            final_map = np.flip(original_map[half_size:3*half_size, half_size:3*half_size])
+
+        if self.rotate:
+            final_map = cv2.warpAffine(
+                original_map,
+                cv2.getRotationMatrix2D(
+                    (2*half_size, 2*half_size),
+                    self.rotate,
+                    1,
+                ),
+                (4*half_size, 4*half_size),
+            )
+            final_map = final_map[half_size:3*half_size, half_size:3*half_size]
+        self.traj_map = final_map
 
     def calculate_loss(self, loss_function=calculate_ADE_FDE_numpy, SR=False):
         if SR:

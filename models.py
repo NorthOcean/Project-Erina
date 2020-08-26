@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-22 19:53:27
+LastEditTime: 2020-08-26 21:13:58
 @Description: classes and methods of training model
 '''
 import os
@@ -77,10 +77,10 @@ class Base_Model():
     def load_data_and_model(self):
         base_path = self.args.load + '{}'
         model = keras.models.load_model(base_path.format('.h5'))
-        # agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
+        agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         
         # test_options
-        agents_test = np.load('./test_data_seed10/test{}.npy'.format(self.args.test_set), allow_pickle=True)
+        # agents_test = np.load('./gridmaps/agents{}n20.npy'.format(self.args.test_set), allow_pickle=True)
         self.args_old = self.args
         args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
         return model, agents_test, args
@@ -115,24 +115,36 @@ class Base_Model():
     def get_train_data(self, train_tensor=0, batch_size=0, init=False):
         if init:
             self.batch_start = 0
-            self.train_length = len(train_tensor[0])
+            self.train_length = len(train_tensor[1])
             return self.train_length
         
         start = self.batch_start
         end = (self.batch_start + batch_size) % self.train_length
         # 每次最多取 1 epoch
         if end < start:
-            train_inputs = tf.concat([
-                train_tensor[0][start:],
-                train_tensor[0][:end],
-            ], axis=0)
+            if type(train_tensor[0]) == list:
+                train_inputs = [
+                    tf.concat([
+                        train_input[start:],
+                        train_input[:end],
+                    ], axis=0) for train_input in train_tensor[0]
+                ]
+            else:
+                train_inputs = tf.concat([
+                    train_tensor[0][start:],
+                    train_tensor[0][:end],
+                ], axis=0)
+                
             gt = tf.concat([
                 train_tensor[1][start:],
                 train_tensor[1][:end],
             ], axis=0)
 
         elif start + batch_size < self.train_length:
-            train_inputs = train_tensor[0][start:end]
+            if type(train_tensor[0]) == list:
+                train_inputs = [train_input[start:end] for train_input in train_tensor[0]]
+            else:
+                train_inputs = train_tensor[0][start:end]
             gt = train_tensor[1][start:end]
 
         else:
@@ -140,7 +152,7 @@ class Base_Model():
             gt = train_tensor[1]
 
         self.batch_start = end
-        return train_inputs, gt, len(train_inputs)
+        return train_inputs, gt, len(gt)
 
     def forward_train(self, input_trajs):
         output = self.model(input_trajs)
@@ -184,14 +196,19 @@ class Base_Model():
 
         print('\n')
         print('-----------------dataset options-----------------')
+        if self.args.train_percent[0] and self.args.train_type == 'all':
+            print('Sampling data from training sets. ({}x)'.format(self.args.train_percent))
         if self.args.reverse:
             print('Using reverse data to train. (2x)')
         if self.args.add_noise:
             print('Using noise data to train. ({}x)'.format(self.args.add_noise))
+        if self.args.rotate:
+            print('Using rotate data to train. ({}x)'.format(self.args.rotate))
         print('train_number = {}, total {}x train samples.'.format(self.train_number, self.sample_time))
 
         print('-----------------training options-----------------')
-        print('dataset = {},\nbatch_number = {},\nbatch_size = {},\nlr={}'.format(
+        print('model name = {}, \ndataset = {},\nbatch_number = {},\nbatch_size = {},\nlr={}'.format(
+            self.args.model_name,
             self.args.test_set, 
             batch_number, 
             self.args.batch_size,
@@ -217,7 +234,10 @@ class Base_Model():
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
             loss_list = []
             
-            obs_current, gt_current, _ = self.get_train_data(self.train_tensor, self.args.batch_size)
+            obs_current, gt_current, train_sample_number = self.get_train_data(self.train_tensor, self.args.batch_size)
+
+            if train_sample_number < 20:
+                continue
 
             with tf.GradientTape() as tape:
                 model_output_current, _ = self.forward_train(obs_current)
@@ -281,26 +301,27 @@ class Base_Model():
         loss_name_list = ['ADE', 'FDE']
         loss_function = calculate_ADE_FDE_numpy
 
+        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
+        pred, _ = self.forward_train(self.test_tensor)
+
         for index in tqdm(range(len(agents_test)), desc='Testing...'):
             obs = agents_test[index].get_train_traj().reshape([1, agents_test[index].obs_length, 2])
-
-            # if not index == 87:
-            #     continue
             
-            if test_on_neighbors and agents_test[index].neighbor_number > 0:
-                obs_neighbor = (np.stack(agents_test[index].get_neighbor_traj())).reshape([agents_test[index].neighbor_number, agents_test[index].obs_length, 2])
-                obs = np.concatenate([obs, obs_neighbor], axis=0)
+            # if test_on_neighbors and agents_test[index].neighbor_number > 0:
+            #     obs_neighbor = (np.stack(agents_test[index].get_neighbor_traj())).reshape([agents_test[index].neighbor_number, agents_test[index].obs_length, 2])
+            #     obs = np.concatenate([obs, obs_neighbor], axis=0)
 
-            pred = self.forward(obs)
-            agents_test[index].write_pred(pred[0])
-            if test_on_neighbors:
-                agents_test[index].write_pred_neighbor(pred[1:])
+            
+            agents_test[index].write_pred(pred[0].numpy()[index])
+            # if test_on_neighbors:
+            #     agents_test[index].write_pred_neighbor(pred[1:].numpy()[index])
 
-            if SR:
-                agents_test[index].write_pred_sr(SocialRefine_one(agents_test[index], self.args_old))
+            # if SR:
+            #     agents_test[index].write_pred_sr(SocialRefine_one(agents_test[index], self.args_old))
             
             if draw:
-                agents_test[index].draw_results(self.log_dir, '{}.png'.format(index), draw_neighbors=test_on_neighbors)
+                agents_test[index].draw_results(self.log_dir, '{}.png'.format(index), draw_neighbors=False # test_on_neighbors
+                )
 
             all_loss.append(agents_test[index].calculate_loss())
             
@@ -381,7 +402,7 @@ class SS_LSTM(Base_Model):
         return submodel(inputs)
 
 
-class SS_LSTM_nostate(Base_Model):
+class SS_LSTM_map(Base_Model):
     """
     `S`tate and `S`equence `LSTM`
     """
@@ -390,20 +411,31 @@ class SS_LSTM_nostate(Base_Model):
 
     def create_model(self):
         positions = keras.layers.Input(shape=[self.obs_frames, 2])
+        traj_maps = keras.layers.Input(shape=[self.args.gridmapsize, self.args.gridmapsize])
         start_point = tf.reshape(positions[:, -1, :], [-1, 1, 2])
         
         positions_n = positions - start_point
         positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
-      
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
-
         
+        traj_maps_r = tf.reshape(traj_maps, [-1, self.args.gridmapsize, self.args.gridmapsize, 1])
+        average_pooling = keras.layers.AveragePooling2D([2, 2], padding='same')(traj_maps_r)
+        cnn1 = keras.layers.Conv2D(32, [8, 8], activation=tf.nn.relu)(average_pooling)
+        cnn2 = keras.layers.Conv2D(32, [5, 5], activation=tf.nn.relu)(cnn1)
+        pooling2 = keras.layers.AveragePooling2D([2, 2])(cnn2)
+        flatten = keras.layers.Flatten()(pooling2)
+        positions_embadding_state = keras.layers.Dense(self.obs_frames * 32)(flatten)
+        
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
         feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
-        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
+        seq_frature_fc = keras.layers.Dense(32)(feature_flatten)
+        
+        concat_feature = tf.concat([feature_flatten, positions_embadding_state], axis=-1)
+
+        feature_fc = keras.layers.Dense(self.pred_frames * 64)(concat_feature)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
         output5 = keras.layers.Dense(2)(feature_reshape)
         output5 = output5 + start_point
-        lstm = keras.Model(inputs=positions, outputs=[output5])
+        lstm = keras.Model(inputs=[positions, traj_maps], outputs=[output5])
 
         lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
@@ -414,6 +446,21 @@ class SS_LSTM_nostate(Base_Model):
         submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
         return submodel(inputs)
 
+    def prepare_train_data(self, input_agents):
+        input_trajs = []
+        input_maps = []
+        gt = []
+        agent_index = []
+        for agent_index_current, agent in enumerate(tqdm(input_agents)):
+            input_trajs.append(agent.get_train_traj())
+            input_maps.append(agent.get_traj_map())
+            gt.append(agent.get_gt_traj())
+            agent_index.append(agent_index_current)
+
+        input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
+        input_maps = tf.cast(tf.stack(input_maps), tf.float32)
+        gt = tf.cast(tf.stack(gt), tf.float32)
+        return [[input_trajs, input_maps], gt], agent_index
 
 
 class SS_LSTM_lite(Base_Model):
@@ -553,7 +600,51 @@ class Linear(Base_Model):
         
         return output, gt, input_trajs
 
-    
+
+class LSTMcell(Base_Model):
+    """
+    Recurrent cell of LSTM
+    """
+    def __init__(self, train_info, args):
+        super().__init__(train_info, args)
+        
+    def create_model(self):
+        feature_dim = 64
+        embadding = keras.layers.Dense(feature_dim)
+        cell = keras.layers.LSTMCell(feature_dim)
+        decoder = keras.layers.Dense(2)
+        positions_o = keras.layers.Input(shape=[self.obs_frames, 2])
+
+        start_point = tf.reshape(positions_o[:, -1, :], [-1, 1, 2])
+        
+        positions = positions_o - start_point
+        h = tf.transpose(tf.stack([tf.reduce_sum(tf.zeros_like(positions), axis=[1, 2]) for _ in range(feature_dim)]), [1, 0])
+        c = tf.zeros_like(h)
+        
+        state_init = [h, c]
+        for frame in range(self.obs_frames):
+            input_current = positions[:, frame, :]
+            input_current_embadding = embadding(input_current)
+            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
+            output_current = decoder(h_new)
+            [h, c] = [h_new, c_new]
+        
+        all_output = []
+        for frame in range(self.pred_frames):
+            input_current_embadding = embadding(output_current)
+            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
+            output_current = decoder(h_new)
+            [h, c] = [h_new, c_new]
+
+            all_output.append(output_current)
+        
+        output = tf.transpose(tf.stack(all_output), [1, 0, 2]) + start_point
+
+        lstm = keras.Model(inputs=positions_o, outputs=[output])
+        lstm.build(input_shape=[None, self.obs_frames, 2])
+        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
+        
+        return lstm, lstm_optimizer
 
 """
 helpmethods

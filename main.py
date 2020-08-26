@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-22 19:54:51
+LastEditTime: 2020-08-26 00:53:39
 @Description: main of Erina
 '''
 import argparse
@@ -20,7 +20,8 @@ from models import (
     LSTM_FC,
     Linear,
     SS_LSTM,
-    SS_LSTM_nostate,
+    SS_LSTM_map,
+    LSTMcell
 )
 
 from develop_models import (
@@ -50,11 +51,11 @@ def get_parser():
     # 'all': 使用除测试外的所有数据集训练
     parser.add_argument('--train_base', type=str, default='agent')
     parser.add_argument('--frame', type=str, default='01234567')
-    parser.add_argument('--train_percent', type=float, default=0.5)     # 用于训练数据的百分比
+    parser.add_argument('--train_percent', type=float, default=[0.0], nargs='+')     # 用于训练数据的百分比, 0表示全部
     parser.add_argument('--step', type=int, default=4)                  # 数据集滑动窗步长
     parser.add_argument('--reverse', type=int, default=False)            # 按时间轴翻转训练数据
     parser.add_argument('--add_noise', type=int, default=False)         # 训练数据添加噪声
-    parser.add_argument('--noise_on_reverse', type=int, default=False)  # 是否在反转后的数据上添加噪声
+    parser.add_argument('--rotate', type=int, default=False)            # 旋转训练数据(起始点保持不变)
     parser.add_argument('--normalization', type=int, default=False)
 
     # test settings
@@ -100,6 +101,9 @@ def get_parser():
     # parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
     parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
     parser.add_argument('--max_refine', type=float, default=0.8)   # 最大修正尺寸
+
+    # Traj Map args
+    parser.add_argument('--gridmapsize', type=int, default=32)
     return parser
 
 
@@ -119,9 +123,9 @@ def main():
         inputs = Prepare_Train_Data(args).train_info
     else:
         inputs = 0
-        # args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
-        # args_load.load = args.load
-        # args = args_load
+        args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
+        args_load.load = args.load
+        args = args_load
     
     log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
     args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
@@ -130,12 +134,14 @@ def main():
     
     if args.model == 'LSTM_FC':
         model = LSTM_FC
+    elif args.model == 'LSTM':
+        model = LSTMcell
     elif args.model == 'Linear':
         model = Linear
     elif args.model == 'SSLSTM':
         model = SS_LSTM
-    elif args.model == 'SSLSTMnostate':
-        model = SS_LSTM_nostate
+    elif args.model == 'SSLSTMmap':
+        model = SS_LSTM_map
 
     model(train_info=inputs, args=args).run_commands()
 
