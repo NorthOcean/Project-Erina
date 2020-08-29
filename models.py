@@ -1,27 +1,24 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
-LastEditors: Conghao Wong
-LastEditTime: 2020-08-26 21:13:58
+LastEditors: ConghaoWong
+LastEditTime: 2020-08-30 02:32:05
 @Description: classes and methods of training model
 '''
 import os
 import random
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-
-from tqdm import tqdm
 from tensorflow import keras
-import matplotlib.pyplot as plt
+from tqdm import tqdm
 
-from helpmethods import(
-    list2array,
-    dir_check,
-    draw_test_results,
-    calculate_ADE_FDE_numpy,
-)
 from GirdRefine import SocialRefine_one
+from sceneFeature import TrajGridMap
+from helpmethods import (calculate_ADE_FDE_numpy, dir_check, draw_test_results,
+                         list2array)
+
 
 class Base_Model():
     """
@@ -52,12 +49,14 @@ class Base_Model():
             self.model.summary()
         
             if self.args.test:
-                self.agents_test = self.test(
+                self.agents_test = self.test_batch(
                     self.agents_test, 
                     test_on_neighbors=False,
+                    batch_size=0.2,
                     SR=False,
-                    draw=False)
-                np.save(os.path.join(self.log_dir, 'pred.npy'), self.agents_test)
+                    draw=False,
+                    save_agents=False,
+                )
                 # self.draw_pred_results(self.agents_test)
 
     def initial_dataset(self):
@@ -295,8 +294,74 @@ class Base_Model():
             np.savetxt('./results/result-{}{}.txt'.format(model_name, self.args.test_set), latest_results)
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
+
+    def test_batch(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
+        print('-----------------Test options-----------------')
+        print('model name = {},\ndataset = {},\ntest_length= {} * length of test video.\n'.format(
+            self.args.model_name,
+            self.args.test_set, 
+            batch_size,
+        ))
+        
+        start_frame = agents_test[0].obs_frame
+        end_frame = agents_test[-1].obs_frame
+        frame_length = end_frame - start_frame
+        
+        # sort by obs time
+        agents_batch = dict()
+        for agent in agents_test:
+            batch_index = min(int((agent.obs_frame - start_frame)/(batch_size * frame_length)), int(1/batch_size)-1)
+            if not batch_index in agents_batch:
+                agents_batch[batch_index] = []
+            else:
+                agents_batch[batch_index].append(agent)
+        
+        # create trajectory map for each batch
+        traj_maps = [TrajGridMap(agents_batch[batch_index]) for batch_index in agents_batch]
+
+        # write traj map and save batch order
+        test_index = dict()
+        for batch_index, traj_map in zip(agents_batch, traj_maps):
+            total_count = 0
+            if not batch_index in test_index:
+                test_index[batch_index] = []
+                
+            for agent_index, _ in enumerate(agents_batch[batch_index]):
+                agents_batch[batch_index][agent_index].write_traj_map(traj_map)
+                start_count = total_count
+                total_count += 1
+                if calculate_neighbor:
+                    agents_batch[batch_index][agent_index].write_traj_map_for_neighbors(traj_map)
+                    nei_len = agents_batch[batch_index][agent_index].neighbor_number
+                    total_count += nei_len
+                test_index[batch_index].append([i for i in range(start_count, total_count)])
+        
+        # run test
+        all_loss = []
+        for batch_index in agents_batch:
+            [test_tensor, _], _ = self.prepare_train_data(agents_batch[batch_index], calculate_neighbor=True)
+            pred, _ = self.forward_train(test_tensor)
+            pred = pred[0].numpy()
+
+            for agent_index, index in enumerate(test_index[batch_index]):
+                current_pred = pred[index]
+                agents_batch[batch_index][agent_index].write_pred(current_pred[0])
+                if calculate_neighbor:
+                    agents_batch[batch_index][agent_index].write_pred_neighbor(current_pred[1:])
+                
+                all_loss.append(agents_batch[batch_index][agent_index].calculate_loss())
+        
+        average_loss = np.mean(np.stack(all_loss), axis=0)
+        print('test_loss={}\nTest done.'.format(create_loss_dict(average_loss, ['ADE', 'FDE'])))
+
+        if save_agents:
+            result_agents = []
+            for batch_index in agents_batch:
+                result_agents += agents_batch[batch_index]
+            np.save(os.path.join(self.log_dir, 'pred.npy'), result_agents)
+            return result_agents
     
-    def test(self, agents_test, test_on_neighbors=False, SR=True, draw=True):
+    def test(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
         all_loss = []
         loss_name_list = ['ADE', 'FDE']
         loss_function = calculate_ADE_FDE_numpy
@@ -332,6 +397,9 @@ class Base_Model():
         for l in loss:
             print(loss, end='\t')
         print('\nTest done.')
+
+        if save_agents:
+            np.save(os.path.join(self.log_dir, 'pred.npy'), agents_test)
         return agents_test
 
     def draw_pred_results(self, agents):
@@ -446,7 +514,7 @@ class SS_LSTM_map(Base_Model):
         submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
         return submodel(inputs)
 
-    def prepare_train_data(self, input_agents):
+    def prepare_train_data(self, input_agents, calculate_neighbor=False):
         input_trajs = []
         input_maps = []
         gt = []
@@ -456,6 +524,12 @@ class SS_LSTM_map(Base_Model):
             input_maps.append(agent.get_traj_map())
             gt.append(agent.get_gt_traj())
             agent_index.append(agent_index_current)
+
+            if calculate_neighbor and agent.neighbor_number:
+                for traj, traj_map in zip(agent.get_neighbor_traj(), agent.get_traj_map_for_neighbors()):
+                    input_trajs.append(traj)
+                    input_maps.append(agent.get_traj_map())
+                    # No GT
 
         input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
         input_maps = tf.cast(tf.stack(input_maps), tf.float32)

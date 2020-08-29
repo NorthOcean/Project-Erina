@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
-LastEditors: Conghao Wong
-LastEditTime: 2020-08-26 00:48:11
+LastEditors: ConghaoWong
+LastEditTime: 2020-08-30 01:44:56
 @Description: file content
 '''
 import os
@@ -76,7 +76,6 @@ class Prepare_Train_Data():
             test_list = [self.args.test_set]
         
         elif self.args.train_type == 'all':
-            # self.args.normalization = True
             test_list = [self.args.test_set]
             train_list = [i for i in range(5) if not i == self.args.test_set]
         
@@ -535,6 +534,9 @@ class Agent_Part():
     def get_traj_map(self):
         return self.traj_map
 
+    def get_traj_map_for_neighbors(self):
+        return self.traj_map_neighbors
+
     def write_pred(self, pred):
         self.pred = pred
         self.pred_fix()
@@ -575,6 +577,21 @@ class Agent_Part():
             )
             final_map = final_map[half_size:3*half_size, half_size:3*half_size]
         self.traj_map = final_map
+
+    def write_traj_map_for_neighbors(self, gridmap:TrajGridMap):
+        self.traj_map_neighbors = []
+        full_map = gridmap.grid_map
+        half_size = 16
+
+        for nei_traj in self.get_neighbor_traj():
+            center_pos = gridmap.real2grid(nei_traj[-1, :])
+            original_map = cv2.resize(full_map[
+                np.maximum(center_pos[0]-2*half_size, 0):np.minimum(center_pos[0]+2*half_size, full_map.shape[0]), 
+                np.maximum(center_pos[1]-2*half_size, 0):np.minimum(center_pos[1]+2*half_size, full_map.shape[1]),
+            ], (4*half_size, 4*half_size))
+            final_map = original_map[half_size:3*half_size, half_size:3*half_size]
+            self.traj_map_neighbors.append(final_map)
+
 
     def calculate_loss(self, loss_function=calculate_ADE_FDE_numpy, SR=False):
         if SR:
