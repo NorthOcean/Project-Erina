@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 03:46:45
+LastEditTime: 2020-08-30 04:11:22
 @Description: classes and methods of training model
 '''
 import os
@@ -15,7 +15,7 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from GirdRefine import SocialRefine_one
-from sceneFeature import TrajGridMap
+from sceneFeature import TrajectoryMapManager
 from helpmethods import (calculate_ADE_FDE_numpy, dir_check, draw_test_results,
                          list2array)
 
@@ -320,7 +320,7 @@ class Base_Model():
                 agents_batch[batch_index].append(agent)
         
         # create trajectory map for each batch
-        traj_maps = [TrajGridMap(agents_batch[batch_index]) for batch_index in agents_batch]
+        traj_maps = [TrajectoryMapManager(agents_batch[batch_index]) for batch_index in agents_batch]
 
         # write traj map and save batch order
         test_index = dict()
