@@ -1,35 +1,22 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
-LastEditors: Conghao Wong
-LastEditTime: 2020-08-26 00:53:39
+LastEditors: ConghaoWong
+LastEditTime: 2020-08-30 04:00:02
 @Description: main of Erina
 '''
 import argparse
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'        # 去除TF输出
-
 import time
-import tensorflow as tf
+
 import numpy as np
-
+import tensorflow as tf
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
-from PrepareTrainData import Prepare_Train_Data
+
 from helpmethods import dir_check
-from models import (
-    LSTM_FC,
-    Linear,
-    SS_LSTM,
-    SS_LSTM_map,
-    LSTMcell
-)
-
-from develop_models import (
-    FC_cycle,
-    SS_cycle,
-    SS_LSTM_beta
-)
-
+from models import LSTM_FC, SS_LSTM, LSTMcell, SS_LSTM_map
+from PrepareTrainData import DataManager
 
 matplotlib_axes_logger.setLevel('ERROR')        # 画图警告
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"       # kNN问题
@@ -120,7 +107,7 @@ def main():
     args.frame = [int(i) for i in args.frame]
     
     if args.load == 'null':
-        inputs = Prepare_Train_Data(args).train_info
+        inputs = DataManager(args).train_info
     else:
         inputs = 0
         args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
@@ -136,8 +123,6 @@ def main():
         model = LSTM_FC
     elif args.model == 'LSTM':
         model = LSTMcell
-    elif args.model == 'Linear':
-        model = Linear
     elif args.model == 'SSLSTM':
         model = SS_LSTM
     elif args.model == 'SSLSTMmap':

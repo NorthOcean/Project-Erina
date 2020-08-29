@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 02:32:05
+LastEditTime: 2020-08-30 03:46:45
 @Description: classes and methods of training model
 '''
 import os
@@ -27,10 +27,10 @@ class Base_Model():
     Following items should be given when using this model:
     ```
     self.create_model(self), # create prediction model
-    self.loss(self, pred, gt),  # loss function when training model
-    self.loss_eval(self, pred, gt), # loss function when test model
-    self.forward_train(self, inputs, agents_train='null'), # model result in training steps
-    self.forward_test(self, inputs, gt='null', agents_test='null'). # model result in test steps
+    self.loss(self, model_output, gt, obs='null'),  # loss function when training model
+    self.loss_eval(self, model_output, gt, obs='null'), # loss function when test model
+    self.forward_train(self, mode_inputs), # model result in training steps
+    self.forward_test(self, test_tensor:list). # model result in test steps
     ```
     """
     def __init__(self, train_info, args):
@@ -38,14 +38,14 @@ class Base_Model():
         self.train_info = train_info
         
     def run_commands(self):
-        self.initial_dataset()
+        self.get_data()     # 获取与训练数据有关的信息
 
         if self.args.load == 'null':
             self.model, self.optimizer = self.create_model()
             self.model.summary()
             self.train()
         else:
-            self.model, self.agents_test, self.args = self.load_data_and_model()
+            self.model, self.agents_test, self.args = self.load_from_checkpoint()
             self.model.summary()
         
             if self.args.test:
@@ -57,9 +57,8 @@ class Base_Model():
                     draw=False,
                     save_agents=False,
                 )
-                # self.draw_pred_results(self.agents_test)
 
-    def initial_dataset(self):
+    def get_data(self):
         self.obs_frames = self.args.obs_frames
         self.pred_frames = self.args.pred_frames
         self.total_frames = self.obs_frames + self.pred_frames
@@ -73,14 +72,10 @@ class Base_Model():
         self.train_number = self.train_info['train_number']
         self.sample_time = self.train_info['sample_time'] 
     
-    def load_data_and_model(self):
+    def load_from_checkpoint(self):
         base_path = self.args.load + '{}'
         model = keras.models.load_model(base_path.format('.h5'))
         agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
-        
-        # test_options
-        # agents_test = np.load('./gridmaps/agents{}n20.npy'.format(self.args.test_set), allow_pickle=True)
-        self.args_old = self.args
         args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
         return model, agents_test, args
     
@@ -89,29 +84,38 @@ class Base_Model():
         return model, optimizer
 
     def loss(self, model_output, gt, obs='null'):
+        """
+        Train loss, using ADE by default
+        """
         self.loss_namelist = ['ADE_t']
         loss_ADE = calculate_ADE(model_output[0], gt)
         loss_list = tf.stack([loss_ADE])
         return loss_ADE, loss_list
 
     def loss_eval(self, model_output, gt, obs='null'):
+        """
+        Eval metrics, using ADE and FDE by default
+        """
         self.loss_eval_namelist = ['ADE', 'FDE']
         return calculate_ADE(model_output[0], gt).numpy(), calculate_FDE(model_output[0], gt).numpy()
 
-    def prepare_train_data(self, input_agents):
-        input_trajs = []
+    def prepare_model_inputs_all(self, input_agents):
+        model_inputs = []
         gt = []
         agent_index = []
         for agent_index_current, agent in enumerate(tqdm(input_agents)):
-            input_trajs.append(agent.get_train_traj())
+            model_inputs.append(agent.get_train_traj())
             gt.append(agent.get_gt_traj())
             agent_index.append(agent_index_current)
 
-        input_trajs = tf.cast(tf.stack(input_trajs), tf.float32)
+        model_inputs = tf.cast(tf.stack(model_inputs), tf.float32)
         gt = tf.cast(tf.stack(gt), tf.float32)
-        return [input_trajs, gt], agent_index
+        return [model_inputs, gt], agent_index
 
-    def get_train_data(self, train_tensor=0, batch_size=0, init=False):
+    def prepare_model_inputs_batch(self, train_tensor=0, batch_size=0, init=False):
+        """
+        Get batch data from all data
+        """
         if init:
             self.batch_start = 0
             self.train_length = len(train_tensor[1])
@@ -153,48 +157,44 @@ class Base_Model():
         self.batch_start = end
         return train_inputs, gt, len(gt)
 
-    def forward_train(self, input_trajs):
-        output = self.model(input_trajs)
+    def forward_train(self, model_inputs):
+        """
+        Run a training implement
+        """
+        output = self.model(model_inputs)
         if not type(output) == list:
             output = [output]
-        return output, input_trajs
+        return output
 
-    def forward(self, inputs):
-        """This method is a direct IO"""
-        model_inputs = tf.cast(inputs, tf.float32)
-        outputs = self.model(model_inputs)
-        if not type(outputs) == list:
-            outputs = [outputs]
-        return outputs[0].numpy()
-
-    def forward_test(self, test_tensor):
-        input_trajs = test_tensor[0]
+    def forward_test(self, test_tensor:list):
+        """
+        Run test once.
+        `test_tensor` is a `list`. `test_tensor[0]` is the inputs of model and `test_tensor[1]` are their grount truths.
+        """
+        model_inputs = test_tensor[0]
         gt = test_tensor[1]
-        output = self.model(input_trajs)
+        output = self.model(model_inputs)
         if not type(output) == list:
             output = [output]
-        return output, gt, input_trajs
+        return output, gt, model_inputs
 
-    def test_step(self, test_tensor, input_agents, test_index, write_result=False):
+    def test_during_training(self, test_tensor, input_agents, test_index):
+        """
+        Run test during training.
+        Results will NOT be written to inputs.
+        """
         model_output, gt, obs = self.forward_test(test_tensor)
         loss_eval = self.loss_eval(model_output, gt, obs=obs)
-        
-        if write_result:
-            for i, agent in enumerate(input_agents):
-                input_agents[i].clear_pred()
-                
-            for i, output_curr in enumerate(model_output[0]):
-                input_agents[test_index[i][0]].write_pred(output_curr.numpy(), index=test_index[i][1])
-
         return model_output, loss_eval, gt, input_agents
     
     def train(self):
+        """
+        Train the built model `self.model`
+        """
         batch_number = int(np.ceil(self.train_number / self.args.batch_size))
         summary_writer = tf.summary.create_file_writer(self.args.log_dir)
-        
 
-        print('\n')
-        print('-----------------dataset options-----------------')
+        print('\n-----------------dataset options-----------------')
         if self.args.train_percent[0] and self.args.train_type == 'all':
             print('Sampling data from training sets. ({}x)'.format(self.args.train_percent))
         if self.args.reverse:
@@ -206,7 +206,7 @@ class Base_Model():
         print('train_number = {}, total {}x train samples.'.format(self.train_number, self.sample_time))
 
         print('-----------------training options-----------------')
-        print('model name = {}, \ndataset = {},\nbatch_number = {},\nbatch_size = {},\nlr={}'.format(
+        print('model_name = {}, \ndataset = {},\nbatch_number = {},\nbatch_size = {},\nlr={}'.format(
             self.args.model_name,
             self.args.test_set, 
             batch_number, 
@@ -215,10 +215,9 @@ class Base_Model():
         ))
 
         print('\nPrepare training data...')
-        self.train_tensor, self.train_index = self.prepare_train_data(self.agents_train)
-        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
-
-        train_length = self.get_train_data(self.train_tensor, init=True)
+        self.train_tensor, self.train_index = self.prepare_model_inputs_all(self.agents_train)
+        self.test_tensor, self.test_index = self.prepare_model_inputs_all(self.agents_test)
+        train_length = self.prepare_model_inputs_batch(self.train_tensor, init=True)
         
         test_results = []
         test_loss_dict = dict()
@@ -233,13 +232,13 @@ class Base_Model():
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
             loss_list = []
             
-            obs_current, gt_current, train_sample_number = self.get_train_data(self.train_tensor, self.args.batch_size)
+            obs_current, gt_current, train_sample_number = self.prepare_model_inputs_batch(self.train_tensor, self.args.batch_size)
 
             if train_sample_number < 20:
                 continue
 
             with tf.GradientTape() as tape:
-                model_output_current, _ = self.forward_train(obs_current)
+                model_output_current = self.forward_train(obs_current)
                 loss_ADE, loss_list_current = self.loss(model_output_current, gt_current, obs=obs_current)
                 ADE_move_average = 0.7 * loss_ADE + 0.3 * ADE_move_average
 
@@ -253,7 +252,7 @@ class Base_Model():
             epoch = (batch * self.args.batch_size) // train_length
 
             if (epoch >= self.args.start_test_percent * self.args.epochs) and (epoch % self.args.test_step == 0):
-                model_output, loss_eval, _, _ = self.test_step(self.test_tensor, self.agents_test, self.test_index, write_result=False)
+                model_output, loss_eval, _, _ = self.test_during_training(self.test_tensor, self.agents_test, self.test_index)
                 test_results.append(loss_eval)
                 test_loss_dict = create_loss_dict(loss_eval, self.loss_eval_namelist)
             
@@ -262,7 +261,6 @@ class Base_Model():
                 loss_dict = dict(train_loss_dict, **test_loss_dict) # 拼接字典
                 time_bar.set_postfix(loss_dict)
                 
-
             with summary_writer.as_default():
                 for loss_name in loss_dict:
                     value = loss_dict[loss_name]
@@ -296,8 +294,13 @@ class Base_Model():
                 f.write(self.model_save_path.split('.h5')[0])
 
     def test_batch(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
+        """
+        Eval model on test sets.
+        Results WILL be written to inputs.
+        测试可以分段进行，并使用`batch_size`以百分比形式调节时间段长短
+        """
         print('-----------------Test options-----------------')
-        print('model name = {},\ndataset = {},\ntest_length= {} * length of test video.\n'.format(
+        print('model_name = {},\ndataset = {},\ntest_length= {} * length of test video.\n'.format(
             self.args.model_name,
             self.args.test_set, 
             batch_size,
@@ -339,8 +342,8 @@ class Base_Model():
         # run test
         all_loss = []
         for batch_index in agents_batch:
-            [test_tensor, _], _ = self.prepare_train_data(agents_batch[batch_index], calculate_neighbor=True)
-            pred, _ = self.forward_train(test_tensor)
+            [test_tensor, _], _ = self.prepare_model_inputs_all(agents_batch[batch_index], calculate_neighbor=True)
+            pred = self.forward_train(test_tensor)
             pred = pred[0].numpy()
 
             for agent_index, index in enumerate(test_index[batch_index]):
@@ -362,12 +365,16 @@ class Base_Model():
             return result_agents
     
     def test(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
+        """
+        Eval model on test sets.
+        Results WILL be written to inputs.
+        """
         all_loss = []
         loss_name_list = ['ADE', 'FDE']
         loss_function = calculate_ADE_FDE_numpy
 
-        self.test_tensor, self.test_index = self.prepare_train_data(self.agents_test)
-        pred, _ = self.forward_train(self.test_tensor)
+        self.test_tensor, self.test_index = self.prepare_model_inputs_all(self.agents_test)
+        pred = self.forward_train(self.test_tensor)
 
         for index in tqdm(range(len(agents_test)), desc='Testing...'):
             obs = agents_test[index].get_train_traj().reshape([1, agents_test[index].obs_length, 2])
@@ -401,16 +408,6 @@ class Base_Model():
         if save_agents:
             np.save(os.path.join(self.log_dir, 'pred.npy'), agents_test)
         return agents_test
-
-    def draw_pred_results(self, agents):
-        print('\n\nSaving Results:')
-        draw_test_results(
-            agents, 
-            self.log_dir, 
-            loss_function=calculate_ADE_single, 
-            save=self.args.draw_results,
-            train_base=self.args.train_base,
-        )
 
 
 class LSTM_FC(Base_Model):
@@ -514,7 +511,7 @@ class SS_LSTM_map(Base_Model):
         submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
         return submodel(inputs)
 
-    def prepare_train_data(self, input_agents, calculate_neighbor=False):
+    def prepare_model_inputs_all(self, input_agents, calculate_neighbor=False):
         input_trajs = []
         input_maps = []
         gt = []
@@ -563,6 +560,7 @@ class SS_LSTM_lite(Base_Model):
         return lstm, lstm_optimizer
 
 
+'''
 class SS_LSTM_hardATT(Base_Model):
     """
     `S`tate and `S`equence `LSTM`
@@ -617,7 +615,7 @@ class Linear(Base_Model):
         self.args.train_percent = 0.0
     
     def run_commands(self):
-        self.initial_dataset()
+        self.get_data()
         self.model, self.optimizer = self.create_model()
         self.test(self.agents_test)
 
@@ -673,7 +671,7 @@ class Linear(Base_Model):
             results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))     
         
         return output, gt, input_trajs
-
+'''
 
 class LSTMcell(Base_Model):
     """
@@ -724,33 +722,12 @@ class LSTMcell(Base_Model):
 helpmethods
 """
 
-def draw_one_traj(traj, GT, save_path):
-    plt.figure()
-
-    plt.plot(traj.T[0], traj.T[1], '-*')
-    plt.plot(GT.T[0], GT.T[1], '-o')
-    plt.axis('scaled')
-
-    plt.savefig(save_path)
-    plt.close()
-
-
 def create_loss_dict(loss, name_list):
-        return dict(zip(name_list, loss))
+    return dict(zip(name_list, loss))
 
 
 def softmax(x):
     return np.exp(x)/np.sum(np.exp(x),axis=0)
-
-
-def calculate_ADE_single(pred, GT):
-    """input_shape = [pred_frames, 2]"""
-    if not len(pred.shape) == 3:
-        pred = tf.reshape(pred, [1, pred.shape[0], pred.shape[1]])
-    
-    pred = tf.cast(pred, tf.float32)
-    GT = tf.cast(GT, tf.float32)
-    return tf.reduce_mean(tf.linalg.norm(pred - GT, ord=2, axis=2))
 
 
 def calculate_ADE(pred, GT):
@@ -765,69 +742,3 @@ def calculate_FDE(pred, GT):
     GT = tf.cast(GT, tf.float32)
     return tf.reduce_mean(tf.linalg.norm(pred[:, -1, :] - GT[:, -1, :], ord=2, axis=1))
 
-
-def get_model_outputs(model, inputs, input_layer=0, output_layer=1):
-    inn = inputs
-    for i in range(input_layer, output_layer+1):
-        layer = model.get_layer(index=i)
-        output = layer(inn)
-        inn = output
-    return output
-
-
-def smooth_loss(obs, pred, step=2, return_min=True, as_loss=True):
-    """
-    shape for inputs:
-    
-    `obs`: [batch, obs_frames, 2]
-    `pred`: [batch, pred_frames, 2]
-    """
-    start_point = obs[:, -step:, :]
-    pred_frames = pred.shape[1]
-
-    score_list = []
-    delta = []
-    for frame in range(step):
-        delta.append(pred[:, frame] - start_point[:, frame])
-
-    for frame in range(step, pred_frames):
-        delta.append(pred[:, frame] - pred[:, frame-step])
-    
-    delta = tf.transpose(tf.stack(delta), [1, 0, 2])
-    cosine_list = tf.stack([calculate_cosine(delta[:, frame-1, :], delta[:, frame, :]) for frame in range(1, pred_frames)])
-
-    if return_min:
-        cosine_list = tf.reduce_min(cosine_list, axis=0)
-    
-    if as_loss:
-        cosine_list = tf.reduce_mean(1.0 - cosine_list)
-    
-    return cosine_list
-
-
-def calculate_cosine(p1, p2, absolute=True):
-    """
-    shape for inputs:
-    
-    `p1`: [batch, 2]
-    `p2`: [batch, 2]
-    """
-    l_p1 = tf.linalg.norm(p1, axis=1)
-    l_p2 = tf.linalg.norm(p2, axis=1)
-    dot = tf.reduce_sum(p1 * p2, axis=1)
-    result = dot/(l_p1 * l_p2)
-    if absolute:
-        result = tf.abs(result)
-    return result
-    
-
-def save_visable_weighits(model, layer_name, if_abs=True, save_path='./test.png'):
-    """This method is only for test"""
-    import cv2
-    weights = model.get_layer(layer_name).get_weights()[0]
-    if if_abs:
-        weights = np.abs(weights)
-    
-    weights_norm = (weights - weights.min())/(weights.max() - weights.min())
-    weights_draw = (255 * weights_norm).astype(np.int)
-    cv2.imwrite(save_path, weights_draw)

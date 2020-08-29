@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 01:44:56
+LastEditTime: 2020-08-30 04:09:05
 @Description: file content
 '''
 import os
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from sceneFeature import TrajGridMap
+from sceneFeature import TrajectoryMapManager
 from helpmethods import (calculate_ADE_FDE_numpy, dir_check, list2array,
                          predict_linear_for_person)
 
@@ -46,7 +46,7 @@ def prepare_rotate_matrix(min_angel=1, save_path='./rotate_matrix.npy', load=Fal
 rotate_matrix = prepare_rotate_matrix(min_angel=1, load=True)
 
 
-class Prepare_Train_Data():
+class DataManager():
     """
         管理所有数据集的训练与测试数据
     """
@@ -112,21 +112,21 @@ class Prepare_Train_Data():
         
         elif self.args.train_type == 'all':
             train_agents = []
-            gridmaps = []
+            trajmaps = []
             if len(self.args.train_percent) == 1:
                 train_percent = self.args.train_percent * np.ones([len(train_list)])
             else:
                 train_percent = [self.args.train_percent[index] for index in train_list]
                 
             for index, dm in enumerate(data_managers_train):
-                agents, gridmap = self.sample_data(
+                agents, trajmap = self.sample_data(
                     dm, 
                     person_index='all', 
                     random_sample=train_percent[index], 
-                    return_gridmap=True
+                    return_trajmap=True
                 )
                 train_agents += agents
-                gridmaps.append(gridmap)
+                trajmaps.append(trajmap)
 
             if self.args.reverse:
                 for index, dm in enumerate(data_managers_train):
@@ -142,20 +142,17 @@ class Prepare_Train_Data():
             if self.args.rotate:
                 for angel in tqdm(range(360//self.args.rotate, 360, 360//self.args.rotate), desc='Prepare rotate data'):
                     sample_time += 1
-                    for index, [dm, gm] in enumerate(zip(data_managers_train, gridmaps)):
+                    for index, [dm, gm] in enumerate(zip(data_managers_train, trajmaps)):
                         train_agents += self.sample_data(
                             dm, 
                             person_index='all', 
                             random_sample=train_percent[index], 
                             rotate=angel, 
                             use_time_bar=False, 
-                            given_gridmap=gm
+                            given_trajmap=gm
                         )
                 
-            test_agents, test_gridmap = self.sample_data(data_managers_test[0], person_index='all', return_gridmap=True, random_sample=-0.2)
-            # np.save('./gridmaps/{}n20.npy'.format(self.args.test_set), test_gridmap.grid_map)
-            np.save('./gridmaps/agents{}n20.npy'.format(self.args.test_set), test_agents)
-            raise
+            test_agents, test_trajmap = self.sample_data(data_managers_test[0], person_index='all', return_trajmap=True, random_sample=-0.2)
         
         train_info = dict()
         # train_info['all_agents'] = all_data
@@ -164,11 +161,6 @@ class Prepare_Train_Data():
         train_info['train_number'] = len(train_agents)
         train_info['sample_time'] = sample_time  
 
-        # TrajGridMap(train_agents)
-        # # test_options
-        # np.save('./test_data_seed10/train{}.npy'.format(self.args.test_set), train_data)
-        # np.save('./test_data_seed10/test{}.npy'.format(self.args.test_set), test_data)
-        # raise
         return train_info
 
     def data_loader(self, dataset_index):
@@ -294,7 +286,7 @@ class Prepare_Train_Data():
 
         return video_neighbor_list, video_matrix, frame_list
 
-    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, rotate=False, desc='Calculate agent data', use_time_bar=True, random_sample=False, given_gridmap=False, return_gridmap=False):
+    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, rotate=False, desc='Calculate agent data', use_time_bar=True, random_sample=False, given_trajmap=False, return_trajmap=False):
         """
         Sample training data from data_manager
         return: a list of Agent_Part
@@ -343,19 +335,19 @@ class Prepare_Train_Data():
                 )     
                 agents.append(sample_agent)
 
-        if not given_gridmap:
-            traj_gridmap = TrajGridMap(agents)
+        if not given_trajmap:
+            traj_trajmap = TrajectoryMapManager(agents)
             for index in range(len(agents)):
-                agents[index].write_traj_map(traj_gridmap)  
+                agents[index].write_traj_map(traj_trajmap)  
 
-            if return_gridmap:
-                return agents, traj_gridmap
+            if return_trajmap:
+                return agents, traj_trajmap
             else:
                 return agents
 
         else:
             for index in range(len(agents)):
-                agents[index].write_traj_map(given_gridmap)   
+                agents[index].write_traj_map(given_trajmap)   
             return agents
     
     def get_agents(self, video_neighbor_list, video_matrix, frame_list):
@@ -363,13 +355,13 @@ class Prepare_Train_Data():
         使用social matrix计算每个人的`Agent`类，并取样得到用于训练的`Agent_part`类数据
             return: agents(取样后, type=`Agent_part`), original_sample_number
         """
-        data_manager = DataManager(
+        data_manager = DatasetManager(
             video_neighbor_list, video_matrix, frame_list, self.args.init_position
         )
         return data_manager
 
 
-class DataManager():
+class DatasetManager():
     """
         管理一个数据集内的所有轨迹数据
     """
@@ -548,13 +540,13 @@ class Agent_Part():
     def write_pred_neighbor(self, pred):
         self.neighbor_pred = self.pred_fix_neighbor(pred)
 
-    def write_traj_map(self, gridmap:TrajGridMap):
-        full_map = gridmap.grid_map
-        half_size = 16  # half of map size, in grids
+    def write_traj_map(self, trajmap:TrajectoryMapManager):
+        full_map = trajmap.traj_map
+        half_size = 16  # half of map size, in map size
         if not self.rotate:
-            center_pos = gridmap.real2grid(self.traj_train[-1])
+            center_pos = trajmap.real2map(self.traj_train[-1])
         else:
-            center_pos = gridmap.real2grid(self.traj_original[self.obs_length])
+            center_pos = trajmap.real2map(self.traj_original[self.obs_length])
             
         original_map = cv2.resize(full_map[
             np.maximum(center_pos[0]-2*half_size, 0):np.minimum(center_pos[0]+2*half_size, full_map.shape[0]), 
@@ -578,13 +570,13 @@ class Agent_Part():
             final_map = final_map[half_size:3*half_size, half_size:3*half_size]
         self.traj_map = final_map
 
-    def write_traj_map_for_neighbors(self, gridmap:TrajGridMap):
+    def write_traj_map_for_neighbors(self, trajmap:TrajectoryMapManager):
         self.traj_map_neighbors = []
-        full_map = gridmap.grid_map
+        full_map = trajmap.traj_map
         half_size = 16
 
         for nei_traj in self.get_neighbor_traj():
-            center_pos = gridmap.real2grid(nei_traj[-1, :])
+            center_pos = trajmap.real2map(nei_traj[-1, :])
             original_map = cv2.resize(full_map[
                 np.maximum(center_pos[0]-2*half_size, 0):np.minimum(center_pos[0]+2*half_size, full_map.shape[0]), 
                 np.maximum(center_pos[1]-2*half_size, 0):np.minimum(center_pos[1]+2*half_size, full_map.shape[1]),
@@ -634,24 +626,3 @@ class Agent_Part():
         ))
         plt.savefig(save_format)
         plt.close()
-        
-
-def calculate_distance_matrix(positions, exp=False):
-    """input_shape=[person_number, 2]"""
-    person_number = len(positions)
-    positions_stack = np.stack([positions for _ in range(person_number)])
-    distance_matrix = np.linalg.norm(positions_stack - np.transpose(positions_stack, [1, 0, 2]), ord=2, axis=2)
-    if exp:
-        distance_matrix = np.exp(-0.2 * distance_matrix)
-    return distance_matrix
-
-
-def prepare_agent_for_test(trajs, obs_frames, pred_frames, normalization=False):
-    agent_list = []
-    for traj in trajs:
-        agent_list.append(Agent_Part(
-            traj, 0, 0, 
-            0, obs_frames, obs_frames+pred_frames, 
-            future_interaction=False, calculate_social=False, normalization=normalization
-        ))
-    return agent_list
