@@ -2,20 +2,20 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 04:09:05
+LastEditTime: 2020-08-30 04:22:23
 @Description: file content
 '''
 import os
 import random
-import cv2
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from sceneFeature import TrajectoryMapManager
-from helpmethods import (calculate_ADE_FDE_numpy, dir_check, list2array,
+from helpmethods import (calculate_ADE_FDE_numpy, dir_check,
                          predict_linear_for_person)
+from sceneFeature import TrajectoryMapManager
 
 USE_SEED = True
 SEED = 10

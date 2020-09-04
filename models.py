@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
-LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 04:11:22
+LastEditors: Conghao Wong
+LastEditTime: 2020-09-03 16:36:16
 @Description: classes and methods of training model
 '''
 import os
@@ -16,8 +16,7 @@ from tqdm import tqdm
 
 from GirdRefine import SocialRefine_one
 from sceneFeature import TrajectoryMapManager
-from helpmethods import (calculate_ADE_FDE_numpy, dir_check, draw_test_results,
-                         list2array)
+from helpmethods import (calculate_ADE_FDE_numpy, dir_check, list2array)
 
 
 class Base_Model():
@@ -492,7 +491,7 @@ class SS_LSTM_map(Base_Model):
         
         traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
         feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
-        seq_frature_fc = keras.layers.Dense(32)(feature_flatten)
+        # seq_frature_fc = keras.layers.Dense(32)(feature_flatten)
         
         concat_feature = tf.concat([feature_flatten, positions_embadding_state], axis=-1)
 

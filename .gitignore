@@ -6,7 +6,6 @@ vis_backround_image
 .vscode
 vislogs
 *.npy
-*.png
 *.txt
 *.csv
 
