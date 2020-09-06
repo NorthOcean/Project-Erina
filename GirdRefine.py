@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 LastEditors: Conghao Wong
-LastEditTime: 2020-08-16 01:25:47
+LastEditTime: 2020-09-04 10:44:38
 @Description: file content
 '''
 
@@ -221,7 +221,7 @@ def calculate_length(vec1):
     return length1
 
 
-def SocialRefine_one(agent, args, epochs=10, save=False, save_path='null'):
+def SocialRefine_one(agent:Agent_Part, args, epochs=10, save=False, save_path='null'):
     a = GirdMap(args, agent, save=save, save_path=save_path)
     traj_refine = a.refine_model(epochs=epochs)
     return traj_refine

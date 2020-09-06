@@ -1,6 +1,7 @@
 data
 dataset_npz
 logs
+videos
 results
 vis_backround_image
 .vscode

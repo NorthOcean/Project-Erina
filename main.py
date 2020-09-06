@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
-LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 04:00:02
+LastEditors: Conghao Wong
+LastEditTime: 2020-09-06 19:32:12
 @Description: main of Erina
 '''
 import argparse
@@ -31,6 +31,7 @@ def get_parser():
     parser.add_argument('--pred_frames', type=int, default=12)
     parser.add_argument('--test_set', type=int, default=2)
     parser.add_argument('--gpu', type=int, default=2)
+    parser.add_argument('--save_best', type=int, default=True)
 
     # training data settings
     parser.add_argument('--train_type', type=str, default='all')        
@@ -47,7 +48,7 @@ def get_parser():
 
     # test settings
     parser.add_argument('--test', type=int, default=True)
-    parser.add_argument('--start_test_percent', type=float, default=0.7)    
+    parser.add_argument('--start_test_percent', type=float, default=0.0)    
     parser.add_argument('--test_step', type=int, default=3)     # 训练时每test_step个epoch，test一次
     
     # training settings
@@ -60,16 +61,16 @@ def get_parser():
     parser.add_argument('--model_name', type=str, default='model')
     parser.add_argument('--save_model', type=int, default=True)
     parser.add_argument('--load', type=str, default='null')
-    parser.add_argument('--draw_results', type=int, default=True)
+    parser.add_argument('--draw_results', type=int, default=False)
     parser.add_argument('--save_base_dir', type=str, default='./logs')
-    parser.add_argument('--log_dir', type=str, default='DO_NOT_CHANGE')
+    parser.add_argument('--log_dir', type=str, default='null')
     parser.add_argument('--save_per_step', type=bool, default=True)
 
     # Linear args
     parser.add_argument('--diff_weights', type=float, default=0.95)
 
     # LSTM args
-    parser.add_argument('--model', type=str, default='SSLSTM')
+    parser.add_argument('--model', type=str, default='SSLSTMmap')
     parser.add_argument('--k', type=int, default=15)
     parser.add_argument('--save_k_results', type=bool, default=False)
 
@@ -80,6 +81,7 @@ def get_parser():
     parser.add_argument('--calculate_social', type=int, default=False)
 
     # SR args
+    parser.add_argument('-sr_enable', type=bool, default=False)
     parser.add_argument('--gird_shape_x', type=int, default=700)
     parser.add_argument('--gird_shape_y', type=int, default=700)
     parser.add_argument('--gird_length', type=float, default=0.1)   # 网格的真实长度
@@ -106,18 +108,22 @@ def main():
     args = get_parser().parse_args()
     args.frame = [int(i) for i in args.frame]
     
+    gpu_config(args)
     if args.load == 'null':
         inputs = DataManager(args).train_info
+        
     else:
         inputs = 0
         args_load = np.load(args.load+'args.npy', allow_pickle=True).item()
         args_load.load = args.load
         args = args_load
     
-    log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
-    args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
-    gpu_config(args)
-
+    if args.log_dir == 'null':
+        log_dir_current = TIME + args.model_name + args.model + str(args.test_set)
+        args.log_dir = os.path.join(dir_check(args.save_base_dir), log_dir_current)
+    else:
+        args.log_dir = dir_check(args.log_dir)
+    
     
     if args.model == 'LSTM_FC':
         model = LSTM_FC

@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-03 16:36:16
+LastEditTime: 2020-09-06 19:27:20
 @Description: classes and methods of training model
 '''
 import os
@@ -15,8 +15,9 @@ from tensorflow import keras
 from tqdm import tqdm
 
 from GirdRefine import SocialRefine_one
+from helpmethods import calculate_ADE_FDE_numpy, dir_check, list2array
 from sceneFeature import TrajectoryMapManager
-from helpmethods import (calculate_ADE_FDE_numpy, dir_check, list2array)
+from visual import TrajVisual
 
 
 class Base_Model():
@@ -48,13 +49,16 @@ class Base_Model():
             self.model.summary()
         
             if self.args.test:
-                self.agents_test = self.test_batch(
+                # maps = np.load('./{}maps.npy'.format(self.args.test_set), allow_pickle=True)
+                self.test_batch(
                     self.agents_test, 
                     test_on_neighbors=False,
                     batch_size=0.2,
                     SR=False,
-                    draw=False,
+                    draw=self.args.draw_results,
                     save_agents=False,
+                    social_refine=False,
+                    # given_maps=np.array([maps[i] for i in [0, 3, 1, 2, 4]]),
                 )
 
     def get_data(self):
@@ -73,7 +77,12 @@ class Base_Model():
     
     def load_from_checkpoint(self):
         base_path = self.args.load + '{}'
-        model = keras.models.load_model(base_path.format('.h5'))
+        if self.args.save_best:
+            best_epoch = np.loadtxt(os.path.join(self.args.log_dir, 'best_ade_epoch.txt'))[1].astype(int)
+            model = keras.models.load_model(base_path.format('_epoch{}.h5'.format(best_epoch)))
+        else:
+            model = keras.models.load_model(base_path.format('.h5'))
+
         agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
         args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
         return model, agents_test, args
@@ -93,7 +102,8 @@ class Base_Model():
 
     def loss_eval(self, model_output, gt, obs='null'):
         """
-        Eval metrics, using ADE and FDE by default
+        Eval metrics, using ADE and FDE by default.
+        return: `np.array`
         """
         self.loss_eval_namelist = ['ADE', 'FDE']
         return calculate_ADE(model_output[0], gt).numpy(), calculate_FDE(model_output[0], gt).numpy()
@@ -217,7 +227,12 @@ class Base_Model():
         self.train_tensor, self.train_index = self.prepare_model_inputs_all(self.agents_train)
         self.test_tensor, self.test_index = self.prepare_model_inputs_all(self.agents_test)
         train_length = self.prepare_model_inputs_batch(self.train_tensor, init=True)
-        
+
+        if self.args.save_model:
+            self.test_data_save_path = os.path.join(self.args.log_dir, '{}.npy'.format(self.args.model_name + '{}'))
+            np.save(self.test_data_save_path.format('test'), self.agents_test)   
+            np.save(self.test_data_save_path.format('args'), self.args)
+            
         test_results = []
         test_loss_dict = dict()
         test_loss_dict['-'] = 0
@@ -226,6 +241,8 @@ class Base_Model():
         print(batch_number, train_length, self.args.epochs, self.args.batch_size)
         
         time_bar = tqdm(range(batch_number), desc='Training')
+        best_ade = 100.0
+        best_epoch = 0
         for batch in time_bar:
             ADE = 0
             ADE_move_average = tf.cast(0.0, dtype=tf.float32)    # 计算移动平均
@@ -254,6 +271,15 @@ class Base_Model():
                 model_output, loss_eval, _, _ = self.test_during_training(self.test_tensor, self.agents_test, self.test_index)
                 test_results.append(loss_eval)
                 test_loss_dict = create_loss_dict(loss_eval, self.loss_eval_namelist)
+                ade_current = loss_eval[0]
+                if ade_current <= best_ade:
+                    best_ade = ade_current
+                    best_epoch = epoch
+                    
+                    if self.args.save_best:
+                        self.model.save(os.path.join(self.args.log_dir, '{}_epoch{}.h5'.format(self.args.model_name, epoch)))
+                        np.savetxt(os.path.join(self.args.log_dir, 'best_ade_epoch.txt'), np.array([best_ade, best_epoch]))
+
             
             if epoch % 2 == 0:
                 train_loss_dict = create_loss_dict(loss_list, self.loss_namelist)
@@ -280,10 +306,8 @@ class Base_Model():
 
         if self.args.save_model:
             self.model_save_path = os.path.join(self.args.log_dir, '{}.h5'.format(self.args.model_name))
-            self.test_data_save_path = os.path.join(self.args.log_dir, '{}.npy'.format(self.args.model_name + '{}'))
             self.model.save(self.model_save_path)
-            np.save(self.test_data_save_path.format('test'), self.agents_test)   
-            np.save(self.test_data_save_path.format('args'), self.args)
+            
             print('Trained model is saved at "{}".'.format(self.model_save_path.split('.h5')[0]))
             print('To re-test this model, please use "python main.py --load {}".'.format(self.model_save_path.split('.h5')[0]))
             
@@ -292,7 +316,7 @@ class Base_Model():
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
 
-    def test_batch(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
+    def test_batch(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False, social_refine=False, given_maps=False):
         """
         Eval model on test sets.
         Results WILL be written to inputs.
@@ -319,7 +343,11 @@ class Base_Model():
                 agents_batch[batch_index].append(agent)
         
         # create trajectory map for each batch
-        traj_maps = [TrajectoryMapManager(agents_batch[batch_index]) for batch_index in agents_batch]
+        if not type(given_maps) == np.ndarray:
+            traj_maps = [TrajectoryMapManager(agents_batch[batch_index]) for batch_index in agents_batch]
+        else:
+            traj_maps = given_maps
+            print('Using given maps')
 
         # write traj map and save batch order
         test_index = dict()
@@ -340,7 +368,9 @@ class Base_Model():
         
         # run test
         all_loss = []
+        all_loss_batch = []
         for batch_index in agents_batch:
+            batch_loss = []
             [test_tensor, _], _ = self.prepare_model_inputs_all(agents_batch[batch_index], calculate_neighbor=True)
             pred = self.forward_train(test_tensor)
             pred = pred[0].numpy()
@@ -351,10 +381,31 @@ class Base_Model():
                 if calculate_neighbor:
                     agents_batch[batch_index][agent_index].write_pred_neighbor(current_pred[1:])
                 
-                all_loss.append(agents_batch[batch_index][agent_index].calculate_loss())
+                if social_refine:
+                    agents_batch[batch_index][agent_index].write_pred_sr(SocialRefine_one(
+                        agent=agents_batch[batch_index][agent_index],
+                        args=self.args,
+                        epochs=10,
+                        save=False,
+                    ))
+                
+                loss = agents_batch[batch_index][agent_index].calculate_loss(SR=social_refine)
+                all_loss.append(loss)
+                batch_loss.append(loss)
+            
+            all_loss_batch.append(np.mean(np.stack(batch_loss), axis=0))
         
         average_loss = np.mean(np.stack(all_loss), axis=0)
         print('test_loss={}\nTest done.'.format(create_loss_dict(average_loss, ['ADE', 'FDE'])))
+        print(all_loss_batch)
+
+        if draw:
+            result_agents = []
+            for batch_index in agents_batch:
+                result_agents += agents_batch[batch_index]
+
+            tv = TrajVisual(save_base_path=self.args.log_dir, verbose=True, draw_neighbors=False)
+            tv.visual(result_agents, dataset=self.args.test_set)
 
         if save_agents:
             result_agents = []
@@ -478,29 +529,30 @@ class SS_LSTM_map(Base_Model):
         traj_maps = keras.layers.Input(shape=[self.args.gridmapsize, self.args.gridmapsize])
         start_point = tf.reshape(positions[:, -1, :], [-1, 1, 2])
         
+        # sequence feature
         positions_n = positions - start_point
         positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
+        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
+        feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
+        sequence_feature = keras.layers.Dense(self.obs_frames * 32, activation=tf.nn.tanh)(feature_flatten)
         
+        # context feature
         traj_maps_r = tf.reshape(traj_maps, [-1, self.args.gridmapsize, self.args.gridmapsize, 1])
         average_pooling = keras.layers.AveragePooling2D([2, 2], padding='same')(traj_maps_r)
         cnn1 = keras.layers.Conv2D(32, [8, 8], activation=tf.nn.relu)(average_pooling)
         cnn2 = keras.layers.Conv2D(32, [5, 5], activation=tf.nn.relu)(cnn1)
         pooling2 = keras.layers.AveragePooling2D([2, 2])(cnn2)
         flatten = keras.layers.Flatten()(pooling2)
-        positions_embadding_state = keras.layers.Dense(self.obs_frames * 32)(flatten)
+        context_feature = keras.layers.Dense(self.obs_frames * 32, activation=tf.nn.tanh)(flatten)
         
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
-        feature_flatten = tf.reshape(traj_feature, [-1, self.obs_frames * 64])
-        # seq_frature_fc = keras.layers.Dense(32)(feature_flatten)
-        
-        concat_feature = tf.concat([feature_flatten, positions_embadding_state], axis=-1)
-
+        # joint feature
+        concat_feature = tf.concat([sequence_feature, context_feature], axis=-1)
         feature_fc = keras.layers.Dense(self.pred_frames * 64)(concat_feature)
         feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
         output5 = keras.layers.Dense(2)(feature_reshape)
         output5 = output5 + start_point
+        
         lstm = keras.Model(inputs=[positions, traj_maps], outputs=[output5])
-
         lstm.build(input_shape=[None, self.obs_frames, 2])
         lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
         
@@ -740,4 +792,3 @@ def calculate_FDE(pred, GT):
     pred = tf.cast(pred, tf.float32)
     GT = tf.cast(GT, tf.float32)
     return tf.reduce_mean(tf.linalg.norm(pred[:, -1, :] - GT[:, -1, :], ord=2, axis=1))
-

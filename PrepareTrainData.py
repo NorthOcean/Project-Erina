@@ -1,8 +1,8 @@
 '''
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
-LastEditors: ConghaoWong
-LastEditTime: 2020-08-30 04:22:23
+LastEditors: Conghao Wong
+LastEditTime: 2020-09-06 18:41:11
 @Description: file content
 '''
 import os
@@ -77,7 +77,7 @@ class DataManager():
         
         elif self.args.train_type == 'all':
             test_list = [self.args.test_set]
-            train_list = [i for i in range(5) if not i == self.args.test_set]
+            train_list = [i for i in range(8) if not i == self.args.test_set]
         
         data_managers_train = []
         for dataset in train_list:
@@ -121,7 +121,7 @@ class DataManager():
             for index, dm in enumerate(data_managers_train):
                 agents, trajmap = self.sample_data(
                     dm, 
-                    person_index='all', 
+                    person_index='auto', 
                     random_sample=train_percent[index], 
                     return_trajmap=True
                 )
@@ -132,7 +132,7 @@ class DataManager():
                 for index, dm in enumerate(data_managers_train):
                     train_agents += self.sample_data(
                         dm, 
-                        person_index='all', 
+                        person_index='auto', 
                         random_sample=train_percent[index], 
                         reverse=True, 
                         use_time_bar=False
@@ -145,17 +145,41 @@ class DataManager():
                     for index, [dm, gm] in enumerate(zip(data_managers_train, trajmaps)):
                         train_agents += self.sample_data(
                             dm, 
-                            person_index='all', 
+                            person_index='auto', 
                             random_sample=train_percent[index], 
                             rotate=angel, 
                             use_time_bar=False, 
                             given_trajmap=gm
                         )
+            
+            # all_maps = []
+            # for [sample_start, sample_end] in [[0.0, 0.2], [0.2, 0.4], [0.4, 0.6], [0.6, 0.8], [0.8, 1.0]]:
+            #     test_agents, test_trajmap = self.sample_data(
+            #         data_managers_test[0], 
+            #         person_index='auto', 
+            #         return_trajmap=True, 
+            #         random_sample=-sample_end,
+            #         sample_start=sample_start,
+            #     )
+            #     all_maps.append(test_trajmap)
+            # np.save('./{}maps.npy'.format(self.args.test_set), all_maps)
+            # raise
                 
-            test_agents, test_trajmap = self.sample_data(data_managers_test[0], person_index='all', return_trajmap=True, random_sample=-0.2)
+            test_agents, test_trajmap = self.sample_data(
+                data_managers_test[0], 
+                person_index='auto', 
+                return_trajmap=True, 
+                random_sample=False,
+            )
+                
+            # Save map
+            # cv2.imwrite('./map_set{}_start{}_end{}.jpg'.format(
+            #     self.args.test_set,
+            #     sample_start,
+            #     sample_end,
+            # ), (255*(np.minimum(test_trajmap.traj_map, 255))/np.max(test_trajmap.traj_map)).astype(np.int))
         
         train_info = dict()
-        # train_info['all_agents'] = all_data
         train_info['train_data'] = train_agents
         train_info['test_data'] = test_agents
         train_info['train_number'] = len(train_agents)
@@ -174,7 +198,10 @@ class DataManager():
             './data/eth/hotel',
             './data/ucy/zara/zara01',
             './data/ucy/zara/zara02',
-            './data/ucy/univ/students001'
+            './data/ucy/univ/students001',
+            './data/ucy/zara/zara03',
+            './data/ucy/univ/students003',
+            './data/ucy/univ/uni_examples',
         ]
 
         dataset_xy_order = [
@@ -182,6 +209,9 @@ class DataManager():
             [2, 3],
             [3, 2],
             [3, 2],
+            [2, 3],
+            [3, 2],
+            [2, 3],
             [2, 3],
         ]
 
@@ -283,16 +313,16 @@ class DataManager():
                 video_matrix=video_matrix,
                 frame_list=frame_list,
             )
-
         return video_neighbor_list, video_matrix, frame_list
 
-    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, rotate=False, desc='Calculate agent data', use_time_bar=True, random_sample=False, given_trajmap=False, return_trajmap=False):
+    def sample_data(self, data_manager, person_index, add_noise=False, reverse=False, rotate=False, desc='Calculate agent data', use_time_bar=True, random_sample=False, sample_start=0.0, given_trajmap=False, return_trajmap=False):
         """
-        Sample training data from data_manager
+        Sample training data from data_manager.
+        `random_sample`: 为0到1的正数时表示随机取样百分比，为-1到0的负数时表示按照数据集时间顺序百分比取样的终点，此时0～1正数`sample_start`表示起点
         return: a list of Agent_Part
         """
         agents = []
-        if person_index == 'all':
+        if person_index == 'auto':
             if random_sample > 0 and random_sample < 1:
                 if USE_SEED:
                     random.seed(SEED)
@@ -300,11 +330,14 @@ class DataManager():
                     [i for i in range(data_manager.person_number)], 
                     int(data_manager.person_number * random_sample),
                 )
-            elif random_sample == 0 or random_sample >= 1 or random_sample <= -1:
+            elif random_sample == 0 or random_sample >= 1 or random_sample < -1:
                 person_index = range(data_manager.person_number)
 
-            elif random_sample < 0 and random_sample > -1:
-                person_index = [i for i in range((data_manager.person_number * np.abs(random_sample)).astype(int))]
+            elif random_sample < 0 and random_sample >= -1:
+                person_index = [i for i in range(
+                    (data_manager.person_number * np.abs(sample_start)).astype(int),   # start index
+                    (data_manager.person_number * np.abs(random_sample)).astype(int),   # end index
+                )]
 
         if use_time_bar:
             itera = tqdm(person_index, desc=desc)
@@ -535,7 +568,7 @@ class Agent_Part():
 
     def write_pred_sr(self, pred):
         self.pred_sr = pred
-        self.SR = True
+        self.sr = True
 
     def write_pred_neighbor(self, pred):
         self.neighbor_pred = self.pred_fix_neighbor(pred)
@@ -586,7 +619,7 @@ class Agent_Part():
 
 
     def calculate_loss(self, loss_function=calculate_ADE_FDE_numpy, SR=False):
-        if SR:
+        if SR and self.sr:
             self.loss = loss_function(self.get_pred_traj_sr(), self.get_gt_traj())
         else:
             self.loss = loss_function(self.get_pred_traj(), self.get_gt_traj())
@@ -596,6 +629,9 @@ class Agent_Part():
         self.pred = 0
 
     def draw_results(self, log_dir, file_name, draw_neighbors=False, draw_sr=False):
+        """
+        结果保存路径为`log_dir/test_figs/`
+        """
         save_base_dir = dir_check(os.path.join(log_dir, 'test_figs/'))
         save_format = os.path.join(save_base_dir, file_name)
 
