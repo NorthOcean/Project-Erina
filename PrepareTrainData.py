@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 13:30:02
+LastEditTime: 2020-09-09 14:24:04
 @Description: file content
 '''
 import os
@@ -57,7 +57,6 @@ class DataManager():
         self.total_frames = self.pred_frames + self.obs_frames
         self.step = args.step
 
-        self.max_neighbor = args.max_neighbor
         self.init_position = np.array([args.init_position, args.init_position])
         self.god_past_traj = np.stack([self.init_position for _ in range(self.obs_frames)])
         self.god_future_traj = np.stack([self.init_position for _ in range(self.pred_frames)])

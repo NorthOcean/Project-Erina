@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-07 20:30:44
+LastEditTime: 2020-09-09 14:24:16
 @Description: classes and methods of training model
 '''
 import os

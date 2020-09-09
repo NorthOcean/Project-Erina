@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 13:34:55
+LastEditTime: 2020-09-09 14:23:53
 @Description: main of Erina
 '''
 import argparse
@@ -90,7 +90,6 @@ def get_parser():
     parser.add_argument('--avoid_size', type=int, default=15)   # 主动避让的半径网格尺寸
     parser.add_argument('--interest_size', type=int, default=20)   # 原本感兴趣的预测区域
     # parser.add_argument('--social_size', type=int, default=1)   # 互不侵犯的半径网格尺寸
-    parser.add_argument('--smooth_size', type=int, default=5)   # 进行平滑的窗口网格边长
     parser.add_argument('--max_refine', type=float, default=0.8)   # 最大修正尺寸
 
     # Guidance Map args
