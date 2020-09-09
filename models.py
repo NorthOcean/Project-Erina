@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-06 19:27:20
+LastEditTime: 2020-09-07 20:30:44
 @Description: classes and methods of training model
 '''
 import os
@@ -45,20 +45,17 @@ class Base_Model():
             self.model.summary()
             self.train()
         else:
-            self.model, self.agents_test, self.args = self.load_from_checkpoint()
+            self.model, self.agents_test = self.load_from_checkpoint()
             self.model.summary()
         
             if self.args.test:
-                # maps = np.load('./{}maps.npy'.format(self.args.test_set), allow_pickle=True)
                 self.test_batch(
                     self.agents_test, 
                     test_on_neighbors=False,
                     batch_size=0.2,
-                    SR=False,
-                    draw=self.args.draw_results,
+                    social_refine=self.args.sr_enable,
+                    draw_results=self.args.draw_results,
                     save_agents=False,
-                    social_refine=False,
-                    # given_maps=np.array([maps[i] for i in [0, 3, 1, 2, 4]]),
                 )
 
     def get_data(self):
@@ -84,8 +81,7 @@ class Base_Model():
             model = keras.models.load_model(base_path.format('.h5'))
 
         agents_test = np.load(base_path.format('test.npy'), allow_pickle=True)
-        args = np.load(base_path.format('args.npy'), allow_pickle=True).item()
-        return model, agents_test, args
+        return model, agents_test
     
     def create_model(self):
         raise 'MODEL is not defined!'
@@ -316,11 +312,12 @@ class Base_Model():
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
 
-    def test_batch(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False, social_refine=False, given_maps=False):
+    def test_batch(self, agents_test, test_on_neighbors=False, draw_results=True, batch_size=0.2, save_agents=False, social_refine=False, given_maps=False):
         """
         Eval model on test sets.
         Results WILL be written to inputs.
-        测试可以分段进行，并使用`batch_size`以百分比形式调节时间段长短
+        测试可以分段进行，并使用`batch_size`以百分比形式调节时间段长短;
+        `test_on_neighbors`将会被自动打开当`social_refine == True`
         """
         print('-----------------Test options-----------------')
         print('model_name = {},\ndataset = {},\ntest_length= {} * length of test video.\n'.format(
@@ -350,6 +347,9 @@ class Base_Model():
             print('Using given maps')
 
         # write traj map and save batch order
+        if social_refine:
+            test_on_neighbors = True
+            
         test_index = dict()
         for batch_index, traj_map in zip(agents_batch, traj_maps):
             total_count = 0
@@ -360,7 +360,7 @@ class Base_Model():
                 agents_batch[batch_index][agent_index].write_traj_map(traj_map)
                 start_count = total_count
                 total_count += 1
-                if calculate_neighbor:
+                if test_on_neighbors:
                     agents_batch[batch_index][agent_index].write_traj_map_for_neighbors(traj_map)
                     nei_len = agents_batch[batch_index][agent_index].neighbor_number
                     total_count += nei_len
@@ -371,14 +371,14 @@ class Base_Model():
         all_loss_batch = []
         for batch_index in agents_batch:
             batch_loss = []
-            [test_tensor, _], _ = self.prepare_model_inputs_all(agents_batch[batch_index], calculate_neighbor=True)
+            [test_tensor, _], _ = self.prepare_model_inputs_all(agents_batch[batch_index], calculate_neighbor=test_on_neighbors)
             pred = self.forward_train(test_tensor)
             pred = pred[0].numpy()
 
             for agent_index, index in enumerate(test_index[batch_index]):
                 current_pred = pred[index]
                 agents_batch[batch_index][agent_index].write_pred(current_pred[0])
-                if calculate_neighbor:
+                if test_on_neighbors:
                     agents_batch[batch_index][agent_index].write_pred_neighbor(current_pred[1:])
                 
                 if social_refine:
@@ -399,12 +399,12 @@ class Base_Model():
         print('test_loss={}\nTest done.'.format(create_loss_dict(average_loss, ['ADE', 'FDE'])))
         print(all_loss_batch)
 
-        if draw:
+        if draw_results:
             result_agents = []
             for batch_index in agents_batch:
                 result_agents += agents_batch[batch_index]
 
-            tv = TrajVisual(save_base_path=self.args.log_dir, verbose=True, draw_neighbors=False)
+            tv = TrajVisual(save_base_path=self.args.log_dir, verbose=True, draw_neighbors=False, social_refine=social_refine)
             tv.visual(result_agents, dataset=self.args.test_set)
 
         if save_agents:
@@ -414,7 +414,7 @@ class Base_Model():
             np.save(os.path.join(self.log_dir, 'pred.npy'), result_agents)
             return result_agents
     
-    def test(self, agents_test, test_on_neighbors=False, SR=True, draw=True, batch_size=0.2, calculate_neighbor=True, save_agents=False):
+    def test(self, agents_test, test_on_neighbors=False, social_refine=True, draw_results=True, batch_size=0.2, save_agents=False):
         """
         Eval model on test sets.
         Results WILL be written to inputs.
@@ -438,10 +438,10 @@ class Base_Model():
             # if test_on_neighbors:
             #     agents_test[index].write_pred_neighbor(pred[1:].numpy()[index])
 
-            # if SR:
+            # if social_refine:
             #     agents_test[index].write_pred_sr(SocialRefine_one(agents_test[index], self.args_old))
             
-            if draw:
+            if draw_results:
                 agents_test[index].draw_results(self.log_dir, '{}.png'.format(index), draw_neighbors=False # test_on_neighbors
                 )
 

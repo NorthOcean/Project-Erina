@@ -2,7 +2,7 @@
 Author: Conghao Wong
 Date: 2020-08-20 23:05:05
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-06 19:27:54
+LastEditTime: 2020-09-09 11:15:40
 Description: file content
 '''
 
@@ -15,9 +15,13 @@ from tqdm import tqdm
 from helpmethods import dir_check
 from PrepareTrainData import Agent_Part
 
+OBS_IMAGE = './vis_pngs/obs.png'
+GT_IMAGE = './vis_pngs/gt.png'
+PRED_IMAGE = './vis_pngs/pred.png'
+
 
 class TrajVisual():
-    def __init__(self, save_base_path, verbose=False, draw_neighbors=False):
+    def __init__(self, save_base_path, verbose=False, draw_neighbors=False, social_refine=False):
         self.video_path = [
             './videos/eth.avi',
             './videos/hotel.avi',
@@ -53,6 +57,7 @@ class TrajVisual():
         self.verbose = verbose
         self.draw_neighbors = draw_neighbors
         self.save_base_path = save_base_path
+        self.social_refine = social_refine
         
     def visual(self, agents, dataset):
         vc = cv2.VideoCapture(self.video_path[dataset])
@@ -60,7 +65,7 @@ class TrajVisual():
         weights = self.weights[dataset]
 
         if self.verbose:
-            itera = tqdm(enumerate(agents))
+            itera = enumerate(tqdm(agents))
         else:
             itera = enumerate(agents)
 
@@ -94,18 +99,25 @@ class TrajVisual():
         _, f = video_file.read()
 
         obs = self.real2pixel(agent.get_train_traj(), traj_weights)
-        pred = self.real2pixel(agent.get_pred_traj(), traj_weights)
+        if self.social_refine:
+            pred = self.real2pixel(agent.get_pred_traj_sr(), traj_weights)
+        else:
+            pred = self.real2pixel(agent.get_pred_traj(), traj_weights)
+            
         gt = self.real2pixel(agent.get_gt_traj(), traj_weights)
 
-        # 画圆，圆心为：(160, 160)，半径为：60，颜色为：point_color BGR，实心线
-        for p in obs:
-            cv2.circle(f, (p[0], p[1]), 20, (255, 0, 0), 0)  
+        obs_file = cv2.imread(OBS_IMAGE, -1)
+        gt_file = cv2.imread(GT_IMAGE, -1)
+        pred_file = cv2.imread(PRED_IMAGE, -1)
 
+        for p in obs:
+            f = add_png_to_source(f, obs_file, p)
+        
         for p in gt:
-            cv2.circle(f, (p[0], p[1]), 20, (255, 255, 0), 0) 
+            f = add_png_to_source(f, gt_file, p)
 
         for p in pred:
-            cv2.circle(f, (p[0], p[1]), 20, (0, 255, 0), 0) 
+            f = add_png_to_source(f, pred_file, p)
 
         if draw_neighbors:
             for obs, pred in zip(agent.get_neighbor_traj(), agent.get_pred_traj_neighbor()):
@@ -119,3 +131,16 @@ class TrajVisual():
                     cv2.circle(f, (p[0], p[1]), 8, (80, 255, 0), 0)
 
         cv2.imwrite(save_path, f) 
+
+
+def add_png_to_source(source:np.ndarray, png:np.ndarray, position):
+    original_png = png[:, :, :3]
+    png_mask = png[:, :, -1]/255
+    
+    yc, xc = position 
+    xp, yp = png_mask.shape
+    xs, ys = source.shape[:2]
+    x0, y0 = [xc-xp//2, yc-yp//2]
+    if x0 > 0 and y0 > 0 and x0 + xp < xs and y0 + yp < ys:
+        source[x0:x0+xp, y0:y0+yp] = (1.0 - png_mask).reshape([xp, yp, 1]) * source[x0:x0+xp, y0:y0+yp] + original_png * png_mask.reshape([xp, yp, 1])
+    return source
