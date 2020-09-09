@@ -14,7 +14,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tqdm import tqdm
 
-from GirdRefine import SocialRefine_one
+from GridRefine import SocialRefine_one
 from helpmethods import calculate_ADE_FDE_numpy, dir_check, list2array
 from sceneFeature import TrajectoryMapManager
 from visual import TrajVisual

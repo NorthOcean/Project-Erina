@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-04 10:44:38
+LastEditTime: 2020-09-09 13:36:02
 @Description: file content
 '''
 
@@ -25,7 +25,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
-class GirdMap():
+class GridMap():
     def __init__(self, args, agent:Agent_Part, save=False, save_path='null'):
         self.args = args
         self.agent = agent
@@ -35,30 +35,30 @@ class GirdMap():
         self.add_mask = cv2.imread('./mask_circle.png')[:, :, 0]
         # self.add_mask = cv2.imread('./mask_square.png')[:, :, 0]
 
-        self.gird_map = self.create_gird_map(save=save, save_path=save_path)      
+        self.grid_map = self.create_grid_map(save=save, save_path=save_path)      
 
     
-    def __calculate_gird(self, input_coor):
+    def __calculate_grid(self, input_coor):
         new_coor = [
-            int(input_coor[0]//self.args.gird_length + self.args.gird_shape_x//2), 
-            int(input_coor[1]//self.args.gird_length + self.args.gird_shape_y//2),
+            int(input_coor[0]//self.args.grid_length + self.args.grid_shape_x//2), 
+            int(input_coor[1]//self.args.grid_length + self.args.grid_shape_y//2),
         ]
         return new_coor
 
-    def real2gird(self, real_coor):
-        return np.stack([self.__calculate_gird(coor) for coor in real_coor])
+    def real2grid(self, real_coor):
+        return np.stack([self.__calculate_grid(coor) for coor in real_coor])
 
-    def create_gird_map(self, save=False, save_path='null'):
-        mmap = np.zeros([self.args.gird_shape_x, self.args.gird_shape_y])
-        pred_current_gird = self.real2gird(self.pred_original)
+    def create_grid_map(self, save=False, save_path='null'):
+        mmap = np.zeros([self.args.grid_shape_x, self.args.grid_shape_y])
+        pred_current_grid = self.real2grid(self.pred_original)
 
         avoid_person_list = []
         avoid_person_cosine = []
         interest_person_list = []
         interest_person_cosine = []
-        pred_gird = dict()
+        pred_grid = dict()
         for index, pred in enumerate(self.pred_neighbor):
-            pred_gird[str(index)] = self.real2gird(pred)
+            pred_grid[str(index)] = self.real2grid(pred)
             cosine = calculate_cosine(self.pred_original[-1] - self.pred_original[0], pred[-1] - pred[0])
             if cosine >= 0:
                 interest_person_list.append(str(index))
@@ -72,8 +72,8 @@ class GirdMap():
         mask = np.minimum(np.stack([(self.args.pred_frames-i)/self.args.pred_frames for i in range(self.args.pred_frames)]).reshape([-1, 1]) + 0.5, 1)
         
         # 将原始预测作为吸引力添加
-        mmap = self.add_to_gird(
-            pred_current_gird, 
+        mmap = self.add_to_grid(
+            pred_current_grid, 
             mmap,
             coe=-1 * np.ones_like(mask),
             add_size=self.args.interest_size,
@@ -81,8 +81,8 @@ class GirdMap():
         
         # 防止碰撞
         for index, cosine in zip(avoid_person_list, avoid_person_cosine):
-            mmap = self.add_to_gird(
-                pred_gird[index], 
+            mmap = self.add_to_grid(
+                pred_grid[index], 
                 mmap,
                 coe=mask*np.abs(cosine),
                 add_size=self.args.avoid_size,
@@ -90,14 +90,14 @@ class GirdMap():
 
         # 同行者吸引
         for index, cosine in zip(interest_person_list, interest_person_cosine):
-            mmap = self.add_to_gird(
-                pred_gird[index], 
+            mmap = self.add_to_grid(
+                pred_grid[index], 
                 mmap,
                 coe=-0.2*mask*np.abs(cosine),
                 add_size=self.args.avoid_size,
             )
         
-        mmap_new = mmap # self.add_to_gird(pred_current_gird, mmap, coe=np.ones([self.args.pred_frames]))
+        mmap_new = mmap # self.add_to_grid(pred_current_grid, mmap, coe=np.ones([self.args.pred_frames]))
         if save:
             cv2.imwrite(
                 save_path,
@@ -105,9 +105,9 @@ class GirdMap():
             )
         return mmap
     
-    def add_to_gird(self, coor_list, girdmap, coe=1, add_size=1, interp=True, replace=True):
+    def add_to_grid(self, coor_list, gridmap, coe=1, add_size=1, interp=True, replace=True):
         mask = cv2.resize(self.add_mask, (2*add_size, 2*add_size))
-        girdmap_c = girdmap.copy()
+        gridmap_c = gridmap.copy()
         coor_list_new = []  # 删除重复项目
         for coor in coor_list:
             if not coor.tolist() in coor_list_new:
@@ -133,8 +133,8 @@ class GirdMap():
                     
 
         for coor, coe_c in zip(coor_list_new, coe):
-            girdmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size] = coe_c*mask + girdmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size]
-        return girdmap_c
+            gridmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size] = coe_c*mask + gridmap_c[coor[0]-add_size:coor[0]+add_size, coor[1]-add_size:coor[1]+add_size]
+        return gridmap_c
 
     def find_linear_neighbor(self, index):
         index1 = np.floor(index)
@@ -169,7 +169,7 @@ class GirdMap():
 
     def refine_model(self, epochs=30):
         prev_result = self.pred_original
-        gird_map = self.gird_map
+        grid_map = self.grid_map
         
         # 原预测静止不动的不需要微调
         if calculate_length(prev_result[-1] - prev_result[1]) <= 1.0:
@@ -177,13 +177,13 @@ class GirdMap():
             
         for epoch in range(epochs):
             result = prev_result
-            input_traj_gird = (self.real2gird(result) + 1.0).astype(np.int)
+            input_traj_grid = (self.real2grid(result) + 1.0).astype(np.int)
 
-            diff_x = gird_map[1:, 1:] - gird_map[:-1, 1:]
-            diff_y = gird_map[1:, 1:] - gird_map[1:, :-1]
+            diff_x = grid_map[1:, 1:] - grid_map[:-1, 1:]
+            diff_y = grid_map[1:, 1:] - grid_map[1:, :-1]
 
-            dx_current = diff_x[input_traj_gird.T[0], input_traj_gird.T[1]]
-            dy_current = diff_y[input_traj_gird.T[0], input_traj_gird.T[1]]
+            dx_current = diff_x[input_traj_grid.T[0], input_traj_grid.T[1]]
+            dy_current = diff_y[input_traj_grid.T[0], input_traj_grid.T[1]]
 
             x_bias = dx_current * 0.001
             y_bias = dy_current * 0.001
@@ -222,7 +222,7 @@ def calculate_length(vec1):
 
 
 def SocialRefine_one(agent:Agent_Part, args, epochs=10, save=False, save_path='null'):
-    a = GirdMap(args, agent, save=save, save_path=save_path)
+    a = GridMap(args, agent, save=save, save_path=save_path)
     traj_refine = a.refine_model(epochs=epochs)
     return traj_refine
 

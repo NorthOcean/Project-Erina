@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-06 18:41:11
+LastEditTime: 2020-09-09 13:30:02
 @Description: file content
 '''
 import os
@@ -359,7 +359,6 @@ class DataManager():
                     frame_point, 
                     frame_point+self.obs_frames, 
                     frame_point+self.total_frames,
-                    future_interaction=self.args.future_interaction,
                     calculate_social=self.args.calculate_social,
                     normalization=self.args.normalization,
                     add_noise=add_noise,
@@ -418,7 +417,7 @@ class DatasetManager():
             ))
         return agent_data
 
-    def get_trajectory(self, agent_index, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):
+    def get_trajectory(self, agent_index, start_frame, obs_frame, end_frame, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):
         target_agent = self.agent_data[agent_index]
         frame_list = target_agent.frame_list
         neighbor_list = target_agent.video_neighbor_list[obs_frame-1].tolist()
@@ -426,7 +425,7 @@ class DatasetManager():
         neighbor_agents = [self.agent_data[nei] for nei in neighbor_list]
 
         return Agent_Part(
-            target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=future_interaction, calculate_social=calculate_social, normalization=normalization, add_noise=add_noise, reverse=reverse, rotate=rotate
+            target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, calculate_social=calculate_social, normalization=normalization, add_noise=add_noise, reverse=reverse, rotate=rotate
         )
         
 
@@ -442,7 +441,7 @@ class Agent():
 
 
 class Agent_Part():
-    def __init__(self, target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, future_interaction=True, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):        
+    def __init__(self, target_agent, neighbor_agents, frame_list, start_frame, obs_frame, end_frame, calculate_social=True, normalization=False, add_noise=False, reverse=False, rotate=False):        
         # Trajectory info
         self.start_frame = start_frame
         self.obs_frame = obs_frame
@@ -476,7 +475,6 @@ class Agent_Part():
         self.start_point = self.traj[0]
 
         # Options
-        self.future_interaction = future_interaction
         self.calculate_social = calculate_social  
         self.normalization = normalization 
 
@@ -501,10 +499,6 @@ class Agent_Part():
     def initialize(self):
         self.traj_train = self.traj[:self.obs_length]
         self.traj_gt = self.traj[self.obs_length:]
-
-        if self.future_interaction:
-            self.traj_pred = predict_linear_for_person(self.traj_train, self.total_frame)[self.obs_length:]
-            # self.traj_pred = np.concatenate([self.traj_train, self.traj_future_predict], axis=0)
 
     def agent_normalization(self):
         """Attention: This method will change the value inside the agent!"""
