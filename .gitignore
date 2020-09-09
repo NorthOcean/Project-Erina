@@ -4,6 +4,8 @@ logs
 videos
 results
 vis_backround_image
+_get_all_result.py
+_feature_vis.py
 .vscode
 vislogs
 *.npy
