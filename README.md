@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-09 16:09:15
+ * @LastEditTime: 2020-09-09 17:05:44
  * @Description: file contentz
  -->
 
@@ -12,7 +12,64 @@
 
 <div align='center'><img src="./figures/overview.png"></img></div>
 
-BGM
+BGM has shown a better prediction results on the ETH-UCY dataset than others.
+Some visualized results are listed as follow.
+
+<div align='center'>
+<table>
+    <thead>
+        <tr>
+            <th>conditions</th>
+            <th>SR-LSTM (CVPR2019)</th>
+            <th>Social GAN-P (CVPR2018)</th>
+            <th>Social STGCNN (CVPR2020)</th>
+            <th>BGM</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <th>Meet (3:28 in UCY-zara1)</th>
+            <th><img src="./figures/zara1_351_sr.jpg"></img></th>
+            <th><img src="./figures/zara1_351_sgan.jpg"></img></th>
+            <th><img src="./figures/zara1_351_stgcnn.jpg"></img></th>
+            <th><img src="./figures/zara1_351_bgm.jpg"></img></th>
+        </tr>
+        <tr>
+            <th>Follow (3:28 in UCY-zara1)</th>
+            <th><img src="./figures/zara1_359_sr.jpg"></img></th>
+            <th><img src="./figures/zara1_359_sgan.jpg"></img></th>
+            <th><img src="./figures/zara1_359_stgcnn.jpg"></img></th>
+            <th><img src="./figures/zara1_359_bgm.jpg"></img></th>
+        </tr>
+        <tr>
+            <th>Meet (6:47 in ETH-hotel)</th>
+            <th><img src="./figures/hotel_159_sr.jpg"></img></th>
+            <th><img src="./figures/hotel_159_sgan.jpg"></img></th>
+            <th><img src="./figures/hotel_159_stgcnn.jpg"></img></th>
+            <th><img src="./figures/hotel_159_bgm.jpg"></img></th>
+        </tr>
+        <tr>
+            <th>Follow (10:53 in ETH-hotel)</th>
+            <th><img src="./figures/hotel_284_sr.jpg"></img></th>
+            <th><img src="./figures/hotel_284_sgan.jpg"></img></th>
+            <th><img src="./figures/hotel_284_stgcnn.jpg"></img></th>
+            <th><img src="./figures/hotel_284_bgm.jpg"></img></th>
+        </tr>
+    </tbody>
+</table>
+<table>
+    <tbody>
+        <tr>
+            <th><img src="./vis_pngs/obs.png"></img></th>
+            <th>observations</th>
+            <th><img src="./vis_pngs/gt.png"></img></th>
+            <th>ground truths</th>
+            <th><img src="./vis_pngs/pred.png"></img></th>
+            <th>predictions</th>
+        </tr>
+    </tbody>
+</table>
+</div>
 
 ## Requirements
 All codes are developed with Python 3 with NVIDIA TITAN X (Pascal) GPUs.
