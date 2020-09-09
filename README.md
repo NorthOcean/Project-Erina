@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-09 15:17:22
+ * @LastEditTime: 2020-09-09 16:09:15
  * @Description: file contentz
  -->
 
@@ -15,6 +15,13 @@
 BGM
 
 ## Requirements
+All codes are developed with Python 3 with NVIDIA TITAN X (Pascal) GPUs.
+Detailed packages used can be seen in `./requirements.txt`.
+You can install all of these packages by this command:
+
+```bash
+pip install -r ./requirements.txt
+```
 
 ## Already Trained Models
 
@@ -25,26 +32,59 @@ The evaluation results should be as follows if there are no mistakes of configur
 <table>
     <thead>
         <tr>
+            <th>index</th>
+            <th>dataset</th>
             <th>models</th>
-            <th>eth</th>
-            <th>hotel</th>
-            <th>zara1</th>
-            <th>zara2</th>
-            <th>univ</th>
-            <th>avg</th>
+            <th>download links</th>
+            <th>BGM</th>
+            <th>BGM w/o Social Module</th>
         </tr>
     </thead>
     <tbody>
         <tr>
-            <th>BGM</th>
-            <th>0.50/1.00</th><th>0.25/0.47</th><th>0.41/0.91</th><th>0.33/0.72</th><th>0.47/1.03</th><th>0.39/0.82
+            <th>0</th>
+            <th>eth</th>
+            <th>20200905-202720NEW_500MRR3SSLSTMmap0</th>
+            <th>available soon</th>
+            <th>0.52/1.00</th>
+            <th>0.50/1.00</th>
         </tr>
         <tr>
-            <th>BGM w/o Social Module</th><th>0.52/1.00</th><th>0.25/0.48</th><th>0.43/0.93</th><th>0.34/0.73</th><th>0.48/1.03</th><th>0.40/0.83
+            <th>1</th>
+            <th>hotel</th>
+            <th>20200905-202722NEW_500MRR3SSLSTMmap1</th>
+            <th>available soon</th>
+            <th>0.25/0.48</th>
+            <th>0.25/0.47</th>
+        </tr>
+        <tr>
+            <th>2</th>
+            <th>zara1</th>
+            <th>20200905-202724NEW_500MRR3SSLSTMmap2</th>
+            <th>available soon</th>
+            <th>0.43/0.93</th>
+            <th>0.41/0.91</th>
+        </tr>
+        <tr>
+            <th>3</th>
+            <th>zara2</th>
+            <th>20200905-202726NEW_500MRR3SSLSTMmap3</th>
+            <th>available soon</th>
+            <th>0.34/0.73</th>
+            <th>0.33/0.72</th>
+        </tr>
+        <tr>
+            <th>4</th>
+            <th>univ</th>
+            <th>20200905-202727NEW_500MRR3SSLSTMmap4</th>
+            <th>available soon</th>
+            <th>0.48/1.03</th>
+            <th>0.47/1.03</th>
         </tr>
     </tbody>
 </table>
 </div>
+
 
 ## Training New Models on ETH-UCY datasets
 
@@ -74,7 +114,7 @@ The fully saved model should contain at least (i) a model weight `YOUR_MODEL_NAM
 If there is no test inputs file `YOUR_MODEL_NAMEtest.npy`, you shoud make your own test datas (it should be a `.csv` file) into the format BGM used by the following commands:
 
 ```bash
-
+Available Soon
 ```
 
 ### Run the evaluation
@@ -109,7 +149,6 @@ class TrajVisual():
 You need change the above video path list `self.video_path` to each video of your dataset.
 If your dataset is the record with real world positions, you should calculate your transformation matrix `H` (optional) or the linear mapping weights `W` and `b` for each axis and write to `self.weights`.
 Besides, you should also correct the frame rate of your videos and the sample rate of your dataset.
-
 Default save path of these visualized results is `./YOUR_MODEL_DIR/VisualTrajs/`.
 
 ## Model Options

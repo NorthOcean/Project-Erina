@@ -7,8 +7,8 @@ vis_backround_image
 .vscode
 vislogs
 *.npy
-*.txt
 *.csv
+figures/*.txt
 
 __pycache__
 .DS_Store
