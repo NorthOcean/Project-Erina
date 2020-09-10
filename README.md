@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-09 19:19:06
+ * @LastEditTime: 2020-09-10 12:16:57
  * @Description: file contentz
  -->
 
@@ -139,6 +139,16 @@ The evaluation results should be as follows if there are no mistakes of configur
             <th>0.47/1.03</th>
         </tr>
     </tbody>
+    <tfoot>
+        <tr>
+            <th> - </th>
+            <th> avg </th>
+            <th> - </th>
+            <th> - </th>
+            <th>0.40/0.83</th>
+            <th>0.39/0.82</th>
+        </tr>
+    </tfoot>
 </table>
 </div>
 
@@ -164,12 +174,34 @@ Your new model will be saved at `./logs/YOUR_TRAINING_TIME_YOUR_MODEL_NAME/`.
 ## Train New Models on Your Own Datasets
 
 If you want to train BGM on your own dataset, please make your datas into several `.csv` files.
-Their format are request as:
+Note that the size of the data matrix should be `4 * Number_of_Trajectory_Positions`, and each row should as follows.
 
-- The file should contain 4 columns.
-- 
+- The first row contains all the frame numbers;
 
+- The second row contains all the pedestrian IDs;
 
+- The third row contains all the y-coordinates;
+
+- The fourth row contains all the x-coordinates.
+
+Then rename these files as `true_pos_.csv`.
+After that you should change the codes in `./PrepareTrainData.py` above to the positions of your `.csv` files to run the training.
+
+```python
+...
+class DataManager():
+    ...
+    def data_loader(...):
+        ...
+        dataset_dir = [
+            './data/eth/univ',  # change the path to where your csv file puts
+            './data/eth/hotel', # change the path to where your csv file puts
+            ...
+        ]
+    ...
+```
+
+Commands used to train your model is the same as the above commands used to train on the ETH-UCY dataset.
 
 ## Evaluate Models
 
