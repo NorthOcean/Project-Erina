@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 14:24:04
+LastEditTime: 2020-09-09 19:15:08
 @Description: file content
 '''
 import os
@@ -150,19 +150,6 @@ class DataManager():
                             use_time_bar=False, 
                             given_trajmap=gm
                         )
-            
-            # all_maps = []
-            # for [sample_start, sample_end] in [[0.0, 0.2], [0.2, 0.4], [0.4, 0.6], [0.6, 0.8], [0.8, 1.0]]:
-            #     test_agents, test_trajmap = self.sample_data(
-            #         data_managers_test[0], 
-            #         person_index='auto', 
-            #         return_trajmap=True, 
-            #         random_sample=-sample_end,
-            #         sample_start=sample_start,
-            #     )
-            #     all_maps.append(test_trajmap)
-            # np.save('./{}maps.npy'.format(self.args.test_set), all_maps)
-            # raise
                 
             test_agents, test_trajmap = self.sample_data(
                 data_managers_test[0], 
@@ -170,13 +157,6 @@ class DataManager():
                 return_trajmap=True, 
                 random_sample=False,
             )
-                
-            # Save map
-            # cv2.imwrite('./map_set{}_start{}_end{}.jpg'.format(
-            #     self.args.test_set,
-            #     sample_start,
-            #     sample_end,
-            # ), (255*(np.minimum(test_trajmap.traj_map, 255))/np.max(test_trajmap.traj_map)).astype(np.int))
         
         train_info = dict()
         train_info['train_data'] = train_agents
@@ -188,10 +168,9 @@ class DataManager():
 
     def data_loader(self, dataset_index):
         """
-        从原始csv文件中读取数据
-            return: person_data, frame_data
+        Read trajectory data from csv file.
+        returns: `person_data`, `frame_data`
         """
-        # dataset_index = self.args.test_set
         dataset_dir = [
             './data/eth/univ',
             './data/eth/hotel',

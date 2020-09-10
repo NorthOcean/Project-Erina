@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-09 17:05:44
+ * @LastEditTime: 2020-09-09 19:19:06
  * @Description: file contentz
  -->
 
@@ -21,8 +21,8 @@ Some visualized results are listed as follow.
         <tr>
             <th>conditions</th>
             <th>SR-LSTM (CVPR2019)</th>
-            <th>Social GAN-P (CVPR2018)</th>
-            <th>Social STGCNN (CVPR2020)</th>
+            <th>Social GAN-P (K=20) (CVPR2018)</th>
+            <th>Social STGCNN (K=20) (CVPR2020)</th>
             <th>BGM</th>
         </tr>
     </thead>
@@ -82,7 +82,7 @@ pip install -r ./requirements.txt
 
 ## Already Trained Models
 
-You can download our already trained models here(Available soon) to evaluate the BGM on ETH-UCY datasets.
+You can also download our already trained models here(Available soon) to evaluate the BGM on ETH-UCY datasets.
 The evaluation results should be as follows if there are no mistakes of configuration.
 
 <div align='center'>
@@ -143,10 +143,10 @@ The evaluation results should be as follows if there are no mistakes of configur
 </div>
 
 
-## Training New Models on ETH-UCY datasets
+## Train New Models on ETH-UCY datasets
 
 The original  ETH-UCY datasets (contains ETH-eth, ETH-hotel, UCY-zara1,2,3 and UCY-univ1,3,examples) are included in `./data/eth` and `./data/ucy` with the true position in `.csv` format.
-To train a new model on these datasets, you can use the commands above as an example:
+To train a new model on these datasets, please use the commands above as an example:
 
 ```bash
 python main.py \
@@ -161,7 +161,15 @@ More options can be seen below in section `Options`.
 Your new model will be saved at `./logs/YOUR_TRAINING_TIME_YOUR_MODEL_NAME/`.
 (For example `./logs/20200909-120030example_model`)
 
-## Training New Models on Your Own Datasets
+## Train New Models on Your Own Datasets
+
+If you want to train BGM on your own dataset, please make your datas into several `.csv` files.
+Their format are request as:
+
+- The file should contain 4 columns.
+- 
+
+
 
 ## Evaluate Models
 
@@ -186,7 +194,7 @@ python main.py \
 
 ### Visualized Results
 
-You can set the evaluate arg `--draw_results` to `1` to enable saving visualized results.
+Set the evaluate arg `--draw_results` to `1` to enable saving visualized results.
 For eth, hotel, zara1 and zara2 in ETH-UCY dataset, we have already calcutated their mapping parameters from real world positions to video-pixel positions in `./visual.py` as follows:
 
 ```python
@@ -219,7 +227,7 @@ Note that all items that need a bool type of inputs should takes integer `0` and
 (Optional) Choose which GPU the model training or evaluation on.
 Parameter should be a positive integer.
 - `--verbose`:
-(Coming Soon) Set if model gives output logs.
+(Available Soon) Set if model gives output logs.
 Default is `True`.
 
 **Model options**:
@@ -265,7 +273,7 @@ Dufault is `0.8`.
 **Guidance map options**:
 
 Args with * represent those args have not been transferred to `main.py`.
-You should change them manually when needed.
+Please change them manually when needed.
 
 - `--window_size_map`*:
 Resolution of the guidance map that shows the number of grids used to represent the reality 1 meter.
