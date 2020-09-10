@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-10 12:16:57
+ * @LastEditTime: 2020-09-10 12:37:07
  * @Description: file contentz
  -->
 
@@ -10,10 +10,26 @@
 
 ## The BGM Model
 
+### Abstract
+
+Visual images usually contain the informative context of the environment, thereby helping to predict agents' behaviors.
+However, they hardly impose the dynamic effects on agents' actual behaviors due to the respectively fixed semantics.
+To solve this problem, we propose a deterministic model named BGM to construct a guidance map to represent the dynamic semantics, which circumvents to use visual images for each agent to reflect the difference of activities in different periods.
+We first record all agents' activities in the scene within a period close to the current to construct a guidance map and then feed it to a Context CNN to obtain their context features.
+We adopt a Historical Trajectory Encoder to extract the trajectory features and then combine them with the context feature as the input of the social energy based trajectory decoder, thus obtaining the prediction that meets the social rules.
+Experiments demonstrate that BGM achieves state-of-the-art prediction accuracy on the two widely used ETH and UCY datasets and handles more complex scenarios.
+
+### Overview
+
 <div align='center'><img src="./figures/overview.png"></img></div>
 
-BGM has shown a better prediction results on the ETH-UCY dataset than others.
-Some visualized results are listed as follow.
+The BGM contains three main components:
+
+- A Historical Trajectory Encoder
+- A Dynamic Context Encoder
+- A Social Energy based Trajectory Decoder, which includes the Trajectory Decoder and the Social Module
+
+### Visualized results
 
 <div align='center'>
 <table>
@@ -72,7 +88,7 @@ Some visualized results are listed as follow.
 </div>
 
 ## Requirements
-All codes are developed with Python 3 with NVIDIA TITAN X (Pascal) GPUs.
+We developed all codes with Python 3 on NVIDIA TITAN X (Pascal) GPUs.
 Detailed packages used can be seen in `./requirements.txt`.
 You can install all of these packages by this command:
 
@@ -153,7 +169,7 @@ The evaluation results should be as follows if there are no mistakes of configur
 </div>
 
 
-## Train New Models on ETH-UCY datasets
+## Train New Models on ETH-UCY Datasets
 
 The original  ETH-UCY datasets (contains ETH-eth, ETH-hotel, UCY-zara1,2,3 and UCY-univ1,3,examples) are included in `./data/eth` and `./data/ucy` with the true position in `.csv` format.
 To train a new model on these datasets, please use the commands above as an example:
@@ -167,14 +183,14 @@ python main.py \
     --model_name example_model
 ```
 
-More options can be seen below in section `Options`.
+More options can be seen below in the section `Options`.
 Your new model will be saved at `./logs/YOUR_TRAINING_TIME_YOUR_MODEL_NAME/`.
 (For example `./logs/20200909-120030example_model`)
 
-## Train New Models on Your Own Datasets
+## Train New Models on Your Datasets
 
-If you want to train BGM on your own dataset, please make your datas into several `.csv` files.
-Note that the size of the data matrix should be `4 * Number_of_Trajectory_Positions`, and each row should as follows.
+If you want to train BGM on your dataset, please make your data into several `.csv` files.
+Note that the data matrix's size should be `4 * Number_of_Trajectory_Positions`, and each row should as follows:
 
 - The first row contains all the frame numbers;
 
@@ -185,7 +201,7 @@ Note that the size of the data matrix should be `4 * Number_of_Trajectory_Positi
 - The fourth row contains all the x-coordinates.
 
 Then rename these files as `true_pos_.csv`.
-After that you should change the codes in `./PrepareTrainData.py` above to the positions of your `.csv` files to run the training.
+After that, you should change the codes in `./PrepareTrainData.py` above to the positions of your `.csv` files to run the training.
 
 ```python
 ...
@@ -208,7 +224,7 @@ Commands used to train your model is the same as the above commands used to trai
 ### Prepare model and data
 
 The fully saved model should contain at least (i) a model weight `YOUR_MODEL_NAME.h5` file and (ii) a training args `YOUR_MODEL_NAMEargs.npy` file.
-If there is no test inputs file `YOUR_MODEL_NAMEtest.npy`, you shoud make your own test datas (it should be a `.csv` file) into the format BGM used by the following commands:
+If there is no test inputs file `YOUR_MODEL_NAMEtest.npy`, you should make your test data (it should be a `.csv` file) into the format BGM used by the following commands:
 
 ```bash
 Available Soon
@@ -224,10 +240,10 @@ python main.py \
     --draw_results 1
 ```
 
-### Visualized Results
+### Visualize Results
 
 Set the evaluate arg `--draw_results` to `1` to enable saving visualized results.
-For eth, hotel, zara1 and zara2 in ETH-UCY dataset, we have already calcutated their mapping parameters from real world positions to video-pixel positions in `./visual.py` as follows:
+For eth, hotel, zara1, and zara2 in ETH-UCY dataset, we have already calculated their mapping parameters from real-world positions to video-pixel positions in `./visual.py` as follows:
 
 ```python
 ...
@@ -243,23 +259,24 @@ class TrajVisual():
 ...
 ```
 
-You need change the above video path list `self.video_path` to each video of your dataset.
-If your dataset is the record with real world positions, you should calculate your transformation matrix `H` (optional) or the linear mapping weights `W` and `b` for each axis and write to `self.weights`.
-Besides, you should also correct the frame rate of your videos and the sample rate of your dataset.
-Default save path of these visualized results is `./YOUR_MODEL_DIR/VisualTrajs/`.
+You need to change the above video path list `self.video_path` to your dataset videos.
+Suppose your dataset is the record with real-world positions.
+In that case, you should calculate your transformation matrix `H` (optional) or the linear mapping weights `W` and `b` for each axis and write to `self.weights`.
+Besides, you should also correct your videos' frame rate and the sample rate of your dataset.
+The default saves path of these visualized results is `./YOUR_MODEL_DIR/VisualTrajs/`.
 
 ## Model Options
 
-You can custom these options both on model compents and training or evaluation.
-Note that all items that need a bool type of inputs should takes integer `0` and `1` instead of `False` and `True`. 
+You can custom these options both on model components and training or evaluation.
+Note that all items that need a bool type of inputs should take integer `0` and `1` instead of `False` and `True`. 
 
 **Environment options**:
 
 - `--gpu`:
 (Optional) Choose which GPU the model training or evaluation on.
-Parameter should be a positive integer.
+This parameter should be a positive integer.
 - `--verbose`:
-(Available Soon) Set if model gives output logs.
+(Available Soon) Set if the model gives output logs.
 Default is `True`.
 
 **Model options**:
@@ -274,11 +291,11 @@ Default is `12`.
 The rate of dropout.
 Default is `0.5`.
 - `--calculate_social`:
-Controls whether the model predict agent's neighbors trajectories.
+Controls whether the model predicts the agent's neighbors' trajectories.
 Default is `False`.
 It will be set to `True` automatically when `--sr_enable` has been set to `True`.
 - `--sr_enable`:
-Controls whether enable the Social Module.
+Controls whether to enable the Social Module.
 Default is `False`.
 
 **Social module options**:
@@ -296,15 +313,15 @@ Default is `0.1`.
 Ideal distance to avoid collision with other people in grid size.
 Default is `15`.
 - `--interest_size`:
-Ideal distance to be attrected by agent's original intention in grid size.
+Ideal distance to be attracted by the agent's original intention in grid size.
 Default is `20`.
 - `--max_refine`:
-The maximum limit that social module could changes in meters.
-Dufault is `0.8`.
+The maximum limit that the social module could change in meters.
+Default is `0.8`.
 
 **Guidance map options**:
 
-Args with * represent those args have not been transferred to `main.py`.
+Args with * represents those args have not been transferred to `main.py`.
 Please change them manually when needed.
 
 - `--window_size_map`*:
@@ -312,48 +329,48 @@ Resolution of the guidance map that shows the number of grids used to represent 
 Default is `4`.
 (Current in `./GridRefine.py`)
 - `--local_half_size`*:
-Half side length of the local guidance maps in grid size.
+The half side length of the local guidance maps in grid size.
 Default is `16`.
 (Current in `./PrepareTrainData.py`)
 
 **Training and evaluation options**:
 
 - `--test_set`:
-Test set of current model.
+The test set of the current model.
 In ETH-UCY datasets, eth=`0`, hotel=`1`, zara1=`2`, zara2=`3` and univ=`4`.
-When using your own datasets, please refer to the above sections.
+When using your datasets, please refer to the above sections.
 Default is `2`.
 - `--load`:
 The model path to be evaluated.
 Set `'null'` if you want to train new models.
 Default is `'null'`.
 - `--train_percent`:
-Controls the percent of training set used to train the model.
-If you have 5 datasets, you could use command `--train_percent 0.1 0.3 0.5 0.7 0.9` to controls the percent each dataset used.
-You can also gives it one float number like `--train_percent 0.1` to set all training sets the same percent.
+Controls the percent of the training set used to train the model.
+If you have five datasets, you could use the command `--train_percent 0.1 0.3 0.5 0.7 0.9` to controls the percent each dataset used.
+You can also give it one float number like `--train_percent 0.1` to set all training sets the same percent.
 Default is `1.0`.
 - `--reverse`:
-Set whether use the reversation to strengthen training data.
+Set whether to use the reversation to strengthen training data.
 Default is `False`.
 - `--add_noise`:
-Set whether use the additional noise data to strengthen training set.
-Set `False` if you do not need this strengthen method, and set a positive integer `n` to add `n` times of noise data to the original training set.
+Set whether to use the additional noise data to strengthen the training set.
+Set `False` if you do not need this strengthen method, and select a positive integer `n` to add `n` times of noise data to the original training set.
 Default is `False`.
 - `--rotate`:
-Set whether use the additional rotation data to strengthen training set.
-Set `False` if you do not need this strengthen method, and set `n` means that the model will divide the 360 degrees into `n` parts, and add all other new degree's rotation trajectories except 0 degree to original training set.
+Set whether to use the additional rotation data to strengthen the training set.
+Set `False` if you do not need this strengthen method, and set `n` means that the model will divide the 360 degrees into `n` parts, and add all other new degree's rotation trajectories except 0 degrees to the original training set.
 Default is `False`.
 - `--test`:
 Set `True` to enable test during training.
 It will be set to `True` automatically when `--load` is not `'null'`.
 Default is `True`.
 - `--start_test_percent`:
-Controls when to start test during training.
-Parameter should be a 0~1 float value.
+Controls when to start tests during training.
+The parameter should be a 0~1 float value.
 Default is `0.0`.
 It only works when `--test` is set to `True`.
 - `--test_step`:
-Controls the epoch step between two times of test during training.
+Controls the number of epochs between two tests during training.
 Default is `3`.
 - `--epochs`:
 The number of epochs when training.
@@ -371,9 +388,9 @@ Default is `500`.
 The name of your new model.
 Default is `'model'`.
 - `--save_model`:
-Controls if save the trained model after training.
+Controls if you want to save the trained model after training.
 Default is `True`.
 - `--log_dir`:
 The root dir where model saved.
-Your model will be saved at `./logs/YOUR_TRAINING_TIME_YOUR_MODEL_NAME` when leave it `'null'`.
+Your model will be saved at `./logs/YOUR_TRAINING_TIME_YOUR_MODEL_NAME` when leaving it `'null'`.
 Default is `'null'`.
