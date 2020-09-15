@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 14:24:16
+LastEditTime: 2020-09-15 10:23:23
 @Description: classes and methods of training model
 '''
 import os
@@ -108,7 +108,7 @@ class Base_Model():
         model_inputs = []
         gt = []
         agent_index = []
-        for agent_index_current, agent in enumerate(tqdm(input_agents)):
+        for agent_index_current, agent in enumerate(tqdm(input_agents, desc='Prepare inputs...')):
             model_inputs.append(agent.get_train_traj())
             gt.append(agent.get_gt_traj())
             agent_index.append(agent_index_current)
@@ -236,7 +236,7 @@ class Base_Model():
         batch_number = 1 + (train_length * self.args.epochs)// self.args.batch_size
         print(batch_number, train_length, self.args.epochs, self.args.batch_size)
         
-        time_bar = tqdm(range(batch_number), desc='Training')
+        time_bar = tqdm(range(batch_number), desc='Training...')
         best_ade = 100.0
         best_epoch = 0
         for batch in time_bar:
@@ -312,7 +312,7 @@ class Base_Model():
             with open('./results/path-{}{}.txt'.format(model_name, self.args.test_set), 'w+') as f:
                 f.write(self.model_save_path.split('.h5')[0])
 
-    def test_batch(self, agents_test, test_on_neighbors=False, draw_results=True, batch_size=0.2, save_agents=False, social_refine=False, given_maps=False):
+    def test_batch(self, agents_test, test_on_neighbors=False, draw_results=True, batch_size=0.2, save_agents=False, social_refine=False):
         """
         Eval model on test sets.
         Results WILL be written to inputs.
@@ -339,32 +339,10 @@ class Base_Model():
             else:
                 agents_batch[batch_index].append(agent)
         
-        # create trajectory map for each batch
-        if not type(given_maps) == np.ndarray:
-            traj_maps = [TrajectoryMapManager(agents_batch[batch_index]) for batch_index in agents_batch]
-        else:
-            traj_maps = given_maps
-            print('Using given maps')
-
-        # write traj map and save batch order
         if social_refine:
             test_on_neighbors = True
-            
-        test_index = dict()
-        for batch_index, traj_map in zip(agents_batch, traj_maps):
-            total_count = 0
-            if not batch_index in test_index:
-                test_index[batch_index] = []
-                
-            for agent_index, _ in enumerate(agents_batch[batch_index]):
-                agents_batch[batch_index][agent_index].write_traj_map(traj_map)
-                start_count = total_count
-                total_count += 1
-                if test_on_neighbors:
-                    agents_batch[batch_index][agent_index].write_traj_map_for_neighbors(traj_map)
-                    nei_len = agents_batch[batch_index][agent_index].neighbor_number
-                    total_count += nei_len
-                test_index[batch_index].append([i for i in range(start_count, total_count)])
+
+        agents_batch, test_index = self.prepare_test_agents_batch(agents_batch, test_on_neighbors)
         
         # run test
         all_loss = []
@@ -397,7 +375,7 @@ class Base_Model():
         
         average_loss = np.mean(np.stack(all_loss), axis=0)
         print('test_loss={}\nTest done.'.format(create_loss_dict(average_loss, ['ADE', 'FDE'])))
-        print(all_loss_batch)
+        # print(all_loss_batch)
 
         if draw_results:
             result_agents = []
@@ -451,78 +429,44 @@ class Base_Model():
         loss = np.mean(np.stack(all_loss), axis=0)
             
         print('test_loss={}'.format(create_loss_dict(loss, loss_name_list)))
-        for l in loss:
-            print(loss, end='\t')
+        # for l in loss:
+        #     print(loss, end='\t')
         print('\nTest done.')
 
         if save_agents:
             np.save(os.path.join(self.log_dir, 'pred.npy'), agents_test)
         return agents_test
+    
+    def prepare_test_agents_batch(self, agents_batch:dict, test_on_neighbors=False):
+        """
+        Prepare test agents and save test order. (When test on neighbors of current agent)
+        returns: Test agents (in batch order) `agents_batch` and their order `test_index`.
+        """
+        # save test order
+        test_index = dict()
+        for batch_index in agents_batch:
+            total_count = 0
+            if not batch_index in test_index:
+                test_index[batch_index] = []
+
+            for agent_index, _ in enumerate(agents_batch[batch_index]):
+                start_count = total_count
+                total_count += 1
+                if test_on_neighbors:
+                    nei_len = agents_batch[batch_index][agent_index].neighbor_number
+                    total_count += nei_len
+                test_index[batch_index].append([i for i in range(start_count, total_count)])
+        
+        return agents_batch, test_index
 
 
-class LSTM_FC(Base_Model):
+class BGM(Base_Model):
     """
-    LSTM based model with full attention layer.
+    `B`uilding a Dynamic `G`uidance `M`ap for Trajectory Prediction
     """
     def __init__(self, train_info, args):
         super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64)(positions_embadding)
-        output3 = keras.layers.Dense(self.pred_frames * 16)(traj_feature)
-        output4 = keras.layers.Reshape([self.pred_frames, 16])(output3)
-        output5 = keras.layers.Dense(2)(output4)
-        lstm = keras.Model(inputs=positions, outputs=[output5], name='LSTM_FC')
-
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-
-class SS_LSTM(Base_Model):
-    """
-    `S`tate and `S`equence `LSTM`
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        start_point = tf.reshape(positions[:, -1, :], [-1, 1, 2])
-        
-        positions_n = positions - start_point
-        positions_embadding_lstm = keras.layers.Dense(64)(positions_n)
-        positions_embadding_state = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
-
-        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
-        feature_fc1 = keras.layers.Dense(64)(concat_feature)
-        feature_flatten = tf.reshape(feature_fc1, [-1, self.obs_frames * 64])
-        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
-        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
-        output5 = keras.layers.Dense(2)(feature_reshape)
-        output5 = output5 + start_point
-        lstm = keras.Model(inputs=positions, outputs=[output5])
-
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-    def get_feature(self, inputs):
-        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
-        return submodel(inputs)
-
-
-class SS_LSTM_map(Base_Model):
-    """
-    `S`tate and `S`equence `LSTM`
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
+        self.given_maps_when_test=False
 
     def create_model(self):
         positions = keras.layers.Input(shape=[self.obs_frames, 2])
@@ -558,8 +502,8 @@ class SS_LSTM_map(Base_Model):
         
         return lstm, lstm_optimizer
 
-    def get_feature(self, inputs):
-        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer('tf_op_layer_Reshape_1').output)
+    def get_feature(self, inputs, layer_name):
+        submodel = keras.Model(inputs=self.model.input, outputs=self.model.get_layer(layer_name).output)
         return submodel(inputs)
 
     def prepare_model_inputs_all(self, input_agents, calculate_neighbor=False):
@@ -567,7 +511,7 @@ class SS_LSTM_map(Base_Model):
         input_maps = []
         gt = []
         agent_index = []
-        for agent_index_current, agent in enumerate(tqdm(input_agents)):
+        for agent_index_current, agent in enumerate(tqdm(input_agents, desc='Prepare inputs...')):
             input_trajs.append(agent.get_train_traj())
             input_maps.append(agent.get_traj_map())
             gt.append(agent.get_gt_traj())
@@ -584,77 +528,32 @@ class SS_LSTM_map(Base_Model):
         gt = tf.cast(tf.stack(gt), tf.float32)
         return [[input_trajs, input_maps], gt], agent_index
 
+    def prepare_test_agents_batch(self, agents_batch:dict, test_on_neighbors=False):
+        # create trajectory map for each batch
+        if not type(self.given_maps_when_test) == np.ndarray:
+            traj_maps = [TrajectoryMapManager(agents_batch[batch_index]) for batch_index in agents_batch]
+        else:
+            traj_maps = self.given_maps_when_test
+            print('Using given maps')
 
-class SS_LSTM_lite(Base_Model):
-    """
-    `S`tate and `S`equence `LSTM`
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
+        # write traj map and save batch order     
+        test_index = dict()
+        for batch_index, traj_map in zip(agents_batch, traj_maps):
+            total_count = 0
+            if not batch_index in test_index:
+                test_index[batch_index] = []
+                
+            for agent_index, _ in enumerate(agents_batch[batch_index]):
+                agents_batch[batch_index][agent_index].write_traj_map(traj_map)
+                start_count = total_count
+                total_count += 1
+                if test_on_neighbors:
+                    agents_batch[batch_index][agent_index].write_traj_map_for_neighbors(traj_map)
+                    nei_len = agents_batch[batch_index][agent_index].neighbor_number
+                    total_count += nei_len
+                test_index[batch_index].append([i for i in range(start_count, total_count)])
 
-    def create_model(self):
-        positions = keras.layers.Input(shape=[self.obs_frames, 2])
-        positions_embadding_lstm = keras.layers.Dense(32)(positions)
-        positions_embadding_state = keras.layers.Dense(32)(positions[:, -1, :])
-        traj_feature = keras.layers.LSTM(32, return_sequences=False)(positions_embadding_lstm)
-
-        concat_feature = tf.concat([traj_feature, positions_embadding_state], axis=-1)
-        feature_flatten = concat_feature
-        feature_fc = keras.layers.Dense(self.pred_frames * 16)(feature_flatten)
-        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 16])
-        output5 = keras.layers.Dense(2)(feature_reshape)
-        lstm = keras.Model(inputs=positions, outputs=[output5])
-
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-
-
-'''
-class SS_LSTM_hardATT(Base_Model):
-    """
-    `S`tate and `S`equence `LSTM`
-    """
-    def __init__(self, train_info, args):
-        self.frame_index = tf.constant(args.frame)
-        super().__init__(train_info, args)
-
-    def create_model(self):
-        positions = keras.layers.Input(shape=[len(self.args.frame), 2])    # use N frames of input
-        positions_embadding_lstm = keras.layers.Dense(64)(positions)
-        # positions_embadding_state = keras.layers.Dense(64)(positions)
-        traj_feature = keras.layers.LSTM(64, return_sequences=True)(positions_embadding_lstm)
-
-        concat_feature = tf.concat([traj_feature, positions_embadding_lstm], axis=-1)
-        feature_flatten = tf.reshape(concat_feature, [-1, len(self.args.frame) * 64 * 2])
-        feature_fc = keras.layers.Dense(self.pred_frames * 64)(feature_flatten)
-        feature_reshape = tf.reshape(feature_fc, [-1, self.pred_frames, 64])
-        output5 = keras.layers.Dense(2)(feature_reshape)
-        lstm = keras.Model(inputs=positions, outputs=[output5])
-
-        lstm.build(input_shape=[None, len(self.args.frame), 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
-    
-    def forward_train(self, train_tensor, index):
-        input_trajs = train_tensor[0][index[0]:index[1]]
-        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
-        gt = train_tensor[1][index[0]:index[1]]
-        output = self.model(input_trajs)
-        if not type(output) == list:
-            output = [output]
-        return output, gt, input_trajs
-
-    def forward_test(self, test_tensor):
-        input_trajs = test_tensor[0]
-        input_trajs = tf.gather(input_trajs, self.frame_index, axis=1)
-        gt = test_tensor[1]
-        output = self.model(input_trajs)
-        if not type(output) == list:
-            output = [output]
-        return output, gt, input_trajs
+        return agents_batch, test_index
 
 
 class Linear(Base_Model):
@@ -668,7 +567,14 @@ class Linear(Base_Model):
     def run_commands(self):
         self.get_data()
         self.model, self.optimizer = self.create_model()
-        self.test(self.agents_test)
+        self.test_batch(
+            self.agents_test,
+            batch_size=1.0,
+            test_on_neighbors=False,
+            social_refine=False,
+            draw_results=self.args.draw_results,
+            save_agents=False
+        )
 
     def predict_linear(self, x, y, x_p, diff_weights=0):
         if diff_weights == 0:
@@ -722,52 +628,7 @@ class Linear(Base_Model):
             results.append(self.model(inputs_current, diff_weights=self.args.diff_weights))     
         
         return output, gt, input_trajs
-'''
 
-class LSTMcell(Base_Model):
-    """
-    Recurrent cell of LSTM
-    """
-    def __init__(self, train_info, args):
-        super().__init__(train_info, args)
-        
-    def create_model(self):
-        feature_dim = 64
-        embadding = keras.layers.Dense(feature_dim)
-        cell = keras.layers.LSTMCell(feature_dim)
-        decoder = keras.layers.Dense(2)
-        positions_o = keras.layers.Input(shape=[self.obs_frames, 2])
-
-        start_point = tf.reshape(positions_o[:, -1, :], [-1, 1, 2])
-        
-        positions = positions_o - start_point
-        h = tf.transpose(tf.stack([tf.reduce_sum(tf.zeros_like(positions), axis=[1, 2]) for _ in range(feature_dim)]), [1, 0])
-        c = tf.zeros_like(h)
-        
-        state_init = [h, c]
-        for frame in range(self.obs_frames):
-            input_current = positions[:, frame, :]
-            input_current_embadding = embadding(input_current)
-            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
-            output_current = decoder(h_new)
-            [h, c] = [h_new, c_new]
-        
-        all_output = []
-        for frame in range(self.pred_frames):
-            input_current_embadding = embadding(output_current)
-            h_new, [_, c_new] = cell(input_current_embadding, [h, c])
-            output_current = decoder(h_new)
-            [h, c] = [h_new, c_new]
-
-            all_output.append(output_current)
-        
-        output = tf.transpose(tf.stack(all_output), [1, 0, 2]) + start_point
-
-        lstm = keras.Model(inputs=positions_o, outputs=[output])
-        lstm.build(input_shape=[None, self.obs_frames, 2])
-        lstm_optimizer = keras.optimizers.Adam(lr=self.args.lr)
-        
-        return lstm, lstm_optimizer
 
 """
 helpmethods

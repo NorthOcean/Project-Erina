@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 14:23:53
+LastEditTime: 2020-09-15 09:49:56
 @Description: main of Erina
 '''
 import argparse
@@ -15,7 +15,7 @@ import tensorflow as tf
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
 
 from helpmethods import dir_check
-from models import LSTM_FC, SS_LSTM, LSTMcell, SS_LSTM_map
+from models import BGM, Linear
 from PrepareTrainData import DataManager
 
 matplotlib_axes_logger.setLevel('ERROR')        # 画图警告
@@ -133,15 +133,10 @@ def main():
     else:
         args.log_dir = dir_check(args.log_dir)
     
-    
-    if args.model == 'LSTM_FC':
-        model = LSTM_FC
-    elif args.model == 'LSTM':
-        model = LSTMcell
-    elif args.model == 'SSLSTM':
-        model = SS_LSTM
-    elif args.model == 'SSLSTMmap':
-        model = SS_LSTM_map
+    if args.model == 'bgm':
+        model = BGM
+    elif args.model == 'linear':
+        model = Linear
 
     model(train_info=inputs, args=args).run_commands()
 

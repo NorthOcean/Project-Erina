@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 19:15:08
+LastEditTime: 2020-09-15 09:35:38
 @Description: file content
 '''
 import os
@@ -105,7 +105,7 @@ class DataManager():
                 sample_time += 1
 
             if self.args.add_noise:                
-                for repeat in tqdm(range(self.args.add_noise), desc='Preparing noise data'):
+                for repeat in tqdm(range(self.args.add_noise), desc='Prepare noise data...'):
                     train_agents += self.sample_data(data_managers_train[0], train_index, add_noise=True, use_time_bar=False)
                     sample_time += 1
         
@@ -139,7 +139,7 @@ class DataManager():
                 sample_time += 1
 
             if self.args.rotate:
-                for angel in tqdm(range(360//self.args.rotate, 360, 360//self.args.rotate), desc='Prepare rotate data'):
+                for angel in tqdm(range(360//self.args.rotate, 360, 360//self.args.rotate), desc='Prepare rotate data...'):
                     sample_time += 1
                     for index, [dm, gm] in enumerate(zip(data_managers_train, trajmaps)):
                         train_agents += self.sample_data(
@@ -280,7 +280,7 @@ class DataManager():
             video_matrix[frame_index_current, person_index, :] = traj_current
 
         video_neighbor_list = []
-        for frame_index, data in enumerate(tqdm(video_matrix, desc='Calculate social matrix')):
+        for frame_index, data in enumerate(tqdm(video_matrix, desc='Calculate social matrix...')):
             person_appear = np.where(np.not_equal(data.T[0], self.args.init_position))[0]
             video_neighbor_list.append(person_appear)
 

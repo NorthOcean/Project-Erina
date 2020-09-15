@@ -2,7 +2,7 @@
 Author: Conghao Wong
 Date: 2020-08-20 23:05:05
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-15 09:26:00
+LastEditTime: 2020-09-15 09:36:07
 Description: file content
 '''
 
@@ -65,7 +65,7 @@ class TrajVisual():
         weights = self.weights[dataset]
 
         if self.verbose:
-            itera = enumerate(tqdm(agents))
+            itera = enumerate(tqdm(agents, desc='Save prediction figs...'))
         else:
             itera = enumerate(agents)
 
