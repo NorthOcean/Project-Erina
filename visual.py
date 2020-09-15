@@ -2,7 +2,7 @@
 Author: Conghao Wong
 Date: 2020-08-20 23:05:05
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 11:15:40
+LastEditTime: 2020-09-15 09:26:00
 Description: file content
 '''
 
@@ -70,10 +70,10 @@ class TrajVisual():
             itera = enumerate(agents)
 
         dir_check(self.save_base_path)
-        save_format = os.path.join(dir_check(os.path.join(self.save_base_path, 'VisualTrajs')), '{}.jpg')
+        save_format = os.path.join(dir_check(os.path.join(self.save_base_path, 'VisualTrajs')), '{}.{}')
 
-        for index, agent in itera:
-            self.draw(agent, vc, paras, weights, save_format.format(index), draw_neighbors=self.draw_neighbors)
+        for index, agent in itera:            
+            self.draw(agent, vc, paras, weights, save_format.format(index, 'jpg'), draw_neighbors=self.draw_neighbors)
     
     def real2pixel(self, real_pos, weights):
         if len(weights) == 4:
@@ -130,12 +130,68 @@ class TrajVisual():
                 for p in pred:
                     cv2.circle(f, (p[0], p[1]), 8, (80, 255, 0), 0)
 
-        cv2.imwrite(save_path, f) 
+        cv2.imwrite(save_path, f)
+
+    def draw_video(self, agent:Agent_Part, video_file:cv2.VideoCapture, video_para, traj_weights, save_path, interp=True, indexx=0):
+        _, f = video_file.read()
+        video_shape = (f.shape[1], f.shape[0])
+        frame_list = (agent.frame_list.astype(np.float)).astype(np.int)
+        frame_list_original = frame_list
+
+        if interp:
+            frame_list = np.array([index for index in range(frame_list[0], frame_list[-1]+1)])
+
+        video_list = []
+        times = 1000 * frame_list / video_para[1]
+
+        obs = self.real2pixel(agent.get_train_traj(), traj_weights)
+        if self.social_refine:
+            pred = self.real2pixel(agent.get_pred_traj_sr(), traj_weights)
+        else:
+            pred = self.real2pixel(agent.get_pred_traj(), traj_weights)
+
+        # # load from npy file
+        # pred = np.load('./figures/hotel_{}_stgcnn.npy'.format(indexx)).reshape([-1, 2])
+        # pred = self.real2pixel(np.column_stack([
+        #     pred.T[0],  # sr: 0,1; sgan: 1,0; stgcnn: 1,0
+        #     pred.T[1],
+        # ]), traj_weights)
+                    
+        gt = self.real2pixel(agent.get_gt_traj(), traj_weights)
+
+        obs_file = cv2.imread(OBS_IMAGE, -1)
+        gt_file = cv2.imread(GT_IMAGE, -1)
+        pred_file = cv2.imread(PRED_IMAGE, -1)
+
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        VideoWriter = cv2.VideoWriter(save_path, fourcc, 25.0, video_shape)
+        
+        for time, frame in zip(times, frame_list):
+            video_file.set(cv2.CAP_PROP_POS_MSEC, time - 1)
+            _, f = video_file.read()
+
+            # draw observations
+            for obs_step in range(agent.obs_length):
+                if frame >= frame_list_original[obs_step]:
+                    f = add_png_to_source(f, obs_file, obs[obs_step])
+
+            # draw predictions
+            if frame >= frame_list_original[agent.obs_length]:
+                for p in pred:
+                    f = add_png_to_source(f, pred_file, p, alpha=0.5)
+
+            # draw GTs
+            for gt_step in range(agent.obs_length, agent.total_frame):
+                if frame >= frame_list_original[gt_step]:
+                    f = add_png_to_source(f, obs_file, gt[gt_step - agent.obs_length])
+
+            video_list.append(f)
+            VideoWriter.write(f)
 
 
-def add_png_to_source(source:np.ndarray, png:np.ndarray, position):
+def add_png_to_source(source:np.ndarray, png:np.ndarray, position, alpha=1.0):
     original_png = png[:, :, :3]
-    png_mask = png[:, :, -1]/255
+    png_mask = alpha * png[:, :, -1]/255
     
     yc, xc = position 
     xp, yp = png_mask.shape
