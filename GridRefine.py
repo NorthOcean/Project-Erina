@@ -2,7 +2,7 @@
 @Author: Conghao Wong
 @Date: 2020-05-25 20:14:28
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-09 13:36:02
+LastEditTime: 2020-09-15 16:33:22
 @Description: file content
 '''
 
@@ -225,22 +225,3 @@ def SocialRefine_one(agent:Agent_Part, args, epochs=10, save=False, save_path='n
     a = GridMap(args, agent, save=save, save_path=save_path)
     traj_refine = a.refine_model(epochs=epochs)
     return traj_refine
-
-
-if __name__ == "__main__":
-    from models import create_loss_dict
-    args = get_parser().parse_args()
-    all_agents = np.load('./logs/20200815-231015NAME0-SSLSTM0/pred.npy', allow_pickle=True)
-    all_loss = []
-    for index, agent in enumerate(tqdm(all_agents)):
-        re = SocialRefine_one(args, agent)
-        agent.write_pred_sr(re)
-        agent.draw_results('./SR', '{}.png'.format(index), draw_neighbors=True)
-        all_loss.append(agent.calculate_loss())
-    
-    loss = np.mean(np.stack(all_loss), axis=0)    
-    print('test_loss={}'.format(create_loss_dict(loss, ['ADE', 'FDE'])))
-    for l in loss:
-        print(loss, end='\t')
-    print('\nTest done.')
-    print('!')
