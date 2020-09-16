@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:38:24
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-15 09:49:56
+LastEditTime: 2020-09-16 16:31:38
 @Description: main of Erina
 '''
 import argparse
@@ -72,10 +72,8 @@ def get_parser():
     # Linear args
     parser.add_argument('--diff_weights', type=float, default=0.95)
 
-    # LSTM args
-    parser.add_argument('--model', type=str, default='SSLSTMmap')
-    parser.add_argument('--k', type=int, default=15)
-    parser.add_argument('--save_k_results', type=bool, default=False)
+    # BGM args
+    parser.add_argument('--model', type=str, default='bgm')
 
     # Social args
     # parser.add_argument('--max_neighbor', type=int, default=6)
