@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-16 16:27:45
+LastEditTime: 2020-09-16 16:46:14
 @Description: file content
 '''
 import os
@@ -22,11 +22,11 @@ SEED = 10
 
 
 def prepare_rotate_matrix(min_angel=1, save_path='./rotate_matrix.npy', load=False):
-    need_to_re_calculate = False
+    need_to_re_calculate = True
     if os.path.exists(save_path):
         rotate_matrix = np.load(save_path)
-        if not rotate_matrix.shape[0] == 360//min_angel:
-            need_to_re_calculate = True
+        if rotate_matrix.shape[0] == 360//min_angel:
+            need_to_re_calculate = False
     
     if need_to_re_calculate:
         angles = np.arange(0, 2 * np.pi, min_angel * np.pi / 180)
