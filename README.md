@@ -2,7 +2,7 @@
  * @Author: ConghaoWong
  * @Date: 2019-12-20 09:37:18
  * @LastEditors: Conghao Wong
- * @LastEditTime: 2020-09-10 12:37:07
+ * @LastEditTime: 2020-09-15 14:45:21
  * @Description: file contentz
  -->
 
@@ -201,7 +201,7 @@ Note that the data matrix's size should be `4 * Number_of_Trajectory_Positions`,
 - The fourth row contains all the x-coordinates.
 
 Then rename these files as `true_pos_.csv`.
-After that, you should change the codes in `./PrepareTrainData.py` above to the positions of your `.csv` files to run the training.
+After that, you should change the codes in `./PrepareTrainData.py` below to the path of your `.csv` files to run the training.
 
 ```python
 ...
@@ -217,7 +217,7 @@ class DataManager():
     ...
 ```
 
-Commands used to train your model is the same as the above commands used to train on the ETH-UCY dataset.
+Commands used to train your model are the same as the above commands used to train on the ETH-UCY dataset.
 
 ## Evaluate Models
 
@@ -240,9 +240,9 @@ python main.py \
     --draw_results 1
 ```
 
-### Visualize Results
+### Visualized Results
 
-Set the evaluate arg `--draw_results` to `1` to enable saving visualized results.
+Set the evaluate arg `--draw_results` to `1` to enable saving.
 For eth, hotel, zara1, and zara2 in ETH-UCY dataset, we have already calculated their mapping parameters from real-world positions to video-pixel positions in `./visual.py` as follows:
 
 ```python
@@ -263,12 +263,12 @@ You need to change the above video path list `self.video_path` to your dataset v
 Suppose your dataset is the record with real-world positions.
 In that case, you should calculate your transformation matrix `H` (optional) or the linear mapping weights `W` and `b` for each axis and write to `self.weights`.
 Besides, you should also correct your videos' frame rate and the sample rate of your dataset.
-The default saves path of these visualized results is `./YOUR_MODEL_DIR/VisualTrajs/`.
+The default saving path of these visualized results is `./YOUR_MODEL_DIR/VisualTrajs/`.
 
 ## Model Options
 
 You can custom these options both on model components and training or evaluation.
-Note that all items that need a bool type of inputs should take integer `0` and `1` instead of `False` and `True`. 
+Note that all items that need a bool type of inputs should take integer `0` and `1` instead of `False` and `True`.
 
 **Environment options**:
 
