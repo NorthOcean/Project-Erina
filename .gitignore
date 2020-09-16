@@ -1,4 +1,4 @@
-data
+# data
 dataset_npz
 dataset_npz_old
 logs
@@ -10,7 +10,7 @@ _feature_vis.py
 .vscode
 vislogs
 *.npy
-*.csv
+# *.csv
 figures/*.txt
 
 __pycache__
