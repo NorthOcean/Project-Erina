@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-16 09:11:26
+LastEditTime: 2020-09-16 16:27:24
 @Description: classes and methods of training model
 '''
 import os
@@ -52,7 +52,7 @@ class Base_Model():
                 self.test_batch(
                     self.agents_test, 
                     test_on_neighbors=False,
-                    batch_size=0.5,         # set 0.5 on toy exp
+                    batch_size=0.2,         # set 0.5 on toy exp
                     social_refine=self.args.sr_enable,
                     draw_results=self.args.draw_results,
                     save_agents=False,
