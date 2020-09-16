@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:02
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-15 09:35:38
+LastEditTime: 2020-09-16 09:15:14
 @Description: file content
 '''
 import os
@@ -76,7 +76,8 @@ class DataManager():
         
         elif self.args.train_type == 'all':
             test_list = [self.args.test_set]
-            train_list = [i for i in range(8) if not i == self.args.test_set]
+            # train_list = [i for i in range(8) if not i == self.args.test_set]
+            train_list = [i for i in range(3) if not i == self.args.test_set]   # toy exp
         
         data_managers_train = []
         for dataset in train_list:
@@ -171,24 +172,36 @@ class DataManager():
         Read trajectory data from csv file.
         returns: `person_data`, `frame_data`
         """
-        dataset_dir = [
-            './data/eth/univ',
-            './data/eth/hotel',
-            './data/ucy/zara/zara01',
-            './data/ucy/zara/zara02',
-            './data/ucy/univ/students001',
-            './data/ucy/zara/zara03',
-            './data/ucy/univ/students003',
-            './data/ucy/univ/uni_examples',
+        # dataset_dir = [
+        #     './data/eth/univ',
+        #     './data/eth/hotel',
+        #     './data/ucy/zara/zara01',
+        #     './data/ucy/zara/zara02',
+        #     './data/ucy/univ/students001',
+        #     './data/ucy/zara/zara03',
+        #     './data/ucy/univ/students003',
+        #     './data/ucy/univ/uni_examples',
+        # ]
+
+        # dataset_xy_order = [
+        #     [3, 2],
+        #     [2, 3],
+        #     [3, 2],
+        #     [3, 2],
+        #     [2, 3],
+        #     [3, 2],
+        #     [2, 3],
+        #     [2, 3],
+        # ]
+
+        dataset_dir = [         # toy exp
+            './data/toy/half_circle',
+            './data/toy/line_circle',
+            './data/toy',
         ]
 
-        dataset_xy_order = [
-            [3, 2],
+        dataset_xy_order = [    # toy exp
             [2, 3],
-            [3, 2],
-            [3, 2],
-            [2, 3],
-            [3, 2],
             [2, 3],
             [2, 3],
         ]

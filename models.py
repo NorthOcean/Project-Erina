@@ -2,7 +2,7 @@
 @Author: ConghaoWong
 @Date: 2019-12-20 09:39:34
 LastEditors: Conghao Wong
-LastEditTime: 2020-09-15 10:23:23
+LastEditTime: 2020-09-16 09:11:26
 @Description: classes and methods of training model
 '''
 import os
@@ -52,7 +52,7 @@ class Base_Model():
                 self.test_batch(
                     self.agents_test, 
                     test_on_neighbors=False,
-                    batch_size=0.2,
+                    batch_size=0.5,         # set 0.5 on toy exp
                     social_refine=self.args.sr_enable,
                     draw_results=self.args.draw_results,
                     save_agents=False,
@@ -382,8 +382,13 @@ class Base_Model():
             for batch_index in agents_batch:
                 result_agents += agents_batch[batch_index]
 
-            tv = TrajVisual(save_base_path=self.args.log_dir, verbose=True, draw_neighbors=False, social_refine=social_refine)
-            tv.visual(result_agents, dataset=self.args.test_set)
+            # draw results only
+            for index in range(len(result_agents)):
+                result_agents[index].draw_results(self.log_dir, '{}.png'.format(index), draw_neighbors=False)
+            
+            # draw results on video frames
+            # tv = TrajVisual(save_base_path=self.args.log_dir, verbose=True, draw_neighbors=False, social_refine=social_refine)
+            # tv.visual(result_agents, dataset=self.args.test_set)
 
         if save_agents:
             result_agents = []
